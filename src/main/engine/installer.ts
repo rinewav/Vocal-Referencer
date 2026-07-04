@@ -11,7 +11,7 @@ import { spawn } from 'child_process'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
 import * as tar from 'tar'
-import { engineManifest, PIP_PACKAGES, EnginePart, DEFAULT_MODEL_FILE } from './manifest'
+import { engineManifest, PIP_PACKAGES, EnginePart } from './manifest'
 import { engineRoot, runtimeDir, modelsDir, markerPath, pythonBin, audioSeparatorBin, hasRuntime, ENGINE_VERSION } from './paths'
 
 export interface InstallProgress {
@@ -134,7 +134,9 @@ async function installModel(part: EnginePart): Promise<void> {
 export async function health(): Promise<HealthReport> {
   const runtime = hasRuntime()
   const audioEngine = runtime ? await hasAudioEngine() : false
-  const model = existsSync(join(modelsDir(), DEFAULT_MODEL_FILE))
+  const model = engineManifest()
+    .filter((p) => p.kind === 'model')
+    .every((p) => existsSync(join(modelsDir(), p.modelFilename!)))
   const ok = runtime && audioEngine && model && existsSync(markerPath())
   return { ok, runtime, audioEngine, model }
 }
@@ -144,25 +146,25 @@ export async function install(): Promise<HealthReport> {
   const parts = engineManifest()
   // pre-announce every part so the renderer's count-based aggregate is stable
   for (const part of parts) broadcast({ name: part.name, received: 0, total: 0, done: false })
+  let current = parts[0]
   try {
-    await installPythonRuntime(parts[0])
-    await installPipDeps(parts[1])
-    await installModel(parts[2])
+    await installPythonRuntime((current = parts[0]))
+    await installPipDeps((current = parts[1]))
+    for (const part of parts.filter((p) => p.kind === 'model')) {
+      await installModel((current = part))
+    }
     writeFileSync(markerPath(), JSON.stringify({ version: ENGINE_VERSION, installedAt: Date.now() }))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    // attribute the failure to the first unfinished part
-    const report = await health()
-    const failing = !report.runtime ? parts[0] : !report.audioEngine ? parts[1] : parts[2]
-    broadcast({ name: failing.name, received: 0, total: 0, done: false, error: message })
-    return report
+    broadcast({ name: current.name, received: 0, total: 0, done: false, error: message })
+    return health()
   }
   return health()
 }
 
 /* read-only view for the consent screen */
-export function manifestSummary(): { name: string; kind: string; sizeLabel: string }[] {
-  return engineManifest().map(({ name, kind, sizeLabel }) => ({ name, kind, sizeLabel }))
+export function manifestSummary(): { name: string; kind: string; roleKey: string; sizeLabel: string }[] {
+  return engineManifest().map(({ name, kind, roleKey, sizeLabel }) => ({ name, kind, roleKey, sizeLabel }))
 }
 
 export function installedMarker(): { version: number; installedAt: number } | null {

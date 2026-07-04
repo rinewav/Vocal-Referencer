@@ -21,7 +21,8 @@ const api = {
     list: () => ipcRenderer.invoke('library:list'),
     add: (filePath: string) => ipcRenderer.invoke('library:add', filePath),
     addOwn: (songId: string, filePath: string) => ipcRenderer.invoke('library:add-own', songId, filePath),
-    setTags: (songId: string, tags: string[]) => ipcRenderer.invoke('library:set-tags', songId, tags)
+    rename: (songId: string, title: string) => ipcRenderer.invoke('library:rename', songId, title),
+    remove: (songId: string) => ipcRenderer.invoke('library:delete', songId)
   },
   separate: {
     start: (songId: string, preset: string) => ipcRenderer.invoke('separate:start', songId, preset),

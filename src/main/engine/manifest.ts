@@ -6,6 +6,8 @@ export interface EnginePart {
   /* stable key, also shown as the row name in FirstRun */
   name: string
   kind: 'python-runtime' | 'pip' | 'model'
+  /* i18n key suffix for the consent-screen role text */
+  roleKey: string
   /* estimated size label for the consent screen */
   sizeLabel: string
   /* archive URL — python-runtime only, resolved per platform */
@@ -29,28 +31,40 @@ function pythonRuntimeUrl(): string {
   return `${base}/cpython-${PBS_PY}+${PBS_TAG}-${triple}-install_only.tar.gz`
 }
 
-/* Default separation model: BS-Roformer ep317 (UVR model zoo, vocal/inst SOTA lineage).
-   Filename must match audio-separator's models.json registry. */
+/* Separation models (filenames must match audio-separator's models.json):
+   - BS-Roformer ep317: vocal/instrumental (UVR model zoo, SOTA lineage)
+   - Mel-Roformer Karaoke: lead/backing split for harmony work */
 export const DEFAULT_MODEL_FILE = 'model_bs_roformer_ep_317_sdr_12.9755.ckpt'
+export const KARAOKE_MODEL_FILE = 'mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt'
 
 export function engineManifest(): EnginePart[] {
   return [
     {
       name: 'Python Runtime',
       kind: 'python-runtime',
+      roleKey: 'python-runtime',
       sizeLabel: '~45 MB',
       url: pythonRuntimeUrl()
     },
     {
       name: 'Audio Engine',
       kind: 'pip',
+      roleKey: 'pip',
       sizeLabel: '~800 MB'
     },
     {
-      name: 'Separation Model',
+      name: 'Vocal Model',
       kind: 'model',
+      roleKey: 'model',
       sizeLabel: '~600 MB',
       modelFilename: DEFAULT_MODEL_FILE
+    },
+    {
+      name: 'Karaoke Model',
+      kind: 'model',
+      roleKey: 'model-karaoke',
+      sizeLabel: '~250 MB',
+      modelFilename: KARAOKE_MODEL_FILE
     }
   ]
 }

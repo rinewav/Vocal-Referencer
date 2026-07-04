@@ -1,11 +1,24 @@
 /* Compare view: synced A/B playback of the reference stem vs the user's
    vocal, waveform alignment (auto cross-correlation + drag), loudness-matched
-   switching, spectrum/EQ/compressor analysis. */
+   switching, spectrum/EQ/compressor analysis, and a processing preview that
+   plays the own vocal through the suggested EQ (FIR convolver) + compressor. */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Song, StemRef, loadAudioBuffer, audioContext } from '../lib/audio'
-import { averageSpectrum, eqMatchCurve, integratedLufs, detectOffset, toMono, compRecommendation, Spectrum, CompRecommendation } from '../lib/dsp'
+import {
+  averageSpectrum,
+  eqMatchCurve,
+  eqCurveToFir,
+  integratedLufs,
+  detectOffset,
+  toMono,
+  compRecommendation,
+  envelopeSeriesDb,
+  simulateComp,
+  Spectrum,
+  CompRecommendation
+} from '../lib/dsp'
 import { Waveform } from './Waveform'
-import { SpectrumChart, CompCard } from './AnalysisPanel'
+import { SpectrumCompareChart, EqCurveChart, CompCard, DynamicsData } from './AnalysisPanel'
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
 
@@ -16,9 +29,13 @@ interface Analysis {
   ownSpec: Spectrum
   eqCurve: Float32Array
   comp: CompRecommendation
+  dynamics: DynamicsData
+  /* average gain reduction of the simulated comp — used as makeup gain */
+  makeupDb: number
 }
 
 const nextTick = () => new Promise((r) => setTimeout(r, 0))
+const FIR_TAPS = 4096
 
 export function CompareView({ song }: { song: Song }) {
   useLang()
@@ -37,8 +54,10 @@ export function CompareView({ song }: { song: Song }) {
   const [playing, setPlaying] = useState(false)
   const [listenOwn, setListenOwn] = useState(false)
   const [loudnessMatch, setLoudnessMatch] = useState(true)
+  const [simulate, setSimulate] = useState(false)
   const [playhead, setPlayhead] = useState<number | null>(null)
 
+  const firRef = useRef<Float32Array | null>(null)
   const graphRef = useRef<{
     refSrc: AudioBufferSourceNode
     ownSrc: AudioBufferSourceNode | null
@@ -46,6 +65,7 @@ export function CompareView({ song }: { song: Song }) {
     ownGain: GainNode
     startCtxTime: number
     startPos: number
+    simulated: boolean
   } | null>(null)
   const rafRef = useRef(0)
 
@@ -57,6 +77,7 @@ export function CompareView({ song }: { song: Song }) {
       setLoading(true)
       setError(null)
       setAnalysis(null)
+      firRef.current = null
       try {
         const [ref, own] = await Promise.all([loadAudioBuffer(refStem.path), loadAudioBuffer(ownStem.path)])
         if (canceled) return
@@ -78,8 +99,30 @@ export function CompareView({ song }: { song: Song }) {
         const ownSpec = averageSpectrum(ownMono, own.sampleRate)
         const eqCurve = eqMatchCurve(refSpec, ownSpec)
         const comp = compRecommendation(refMono, ownMono, ref.sampleRate)
+        const refEnv = envelopeSeriesDb(refMono, ref.sampleRate)
+        const ownEnv = envelopeSeriesDb(ownMono, own.sampleRate)
+        const dynamics: DynamicsData = {
+          frameSec: refEnv.frameSec,
+          refDb: refEnv.db,
+          ownDb: ownEnv.db,
+          offsetSec: offset
+        }
+        // makeup: average gain reduction over active frames
+        let makeupDb = 0
+        if (comp.ratio !== null && comp.thresholdDb !== null) {
+          const comped = simulateComp(ownEnv.db, ownEnv.frameSec, comp.thresholdDb, comp.ratio, comp.attackMs, comp.releaseMs)
+          let sum = 0
+          let n = 0
+          for (let i = 0; i < ownEnv.db.length; i++) {
+            if (ownEnv.db[i] > -60) {
+              sum += ownEnv.db[i] - comped[i]
+              n++
+            }
+          }
+          makeupDb = n > 0 ? sum / n : 0
+        }
         if (canceled) return
-        setAnalysis({ lufsRef, lufsOwn, refSpec, ownSpec, eqCurve, comp })
+        setAnalysis({ lufsRef, lufsOwn, refSpec, ownSpec, eqCurve, comp, dynamics, makeupDb })
       } catch (err) {
         if (!canceled) setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -90,6 +133,11 @@ export function CompareView({ song }: { song: Song }) {
       canceled = true
     }
   }, [refStem?.id, ownStem?.id])
+
+  /* keep the dynamics chart's offset in sync with manual nudges */
+  useEffect(() => {
+    setAnalysis((a) => (a && a.dynamics.offsetSec !== offsetSec ? { ...a, dynamics: { ...a.dynamics, offsetSec } } : a))
+  }, [offsetSec])
 
   /* ---------- playback ---------- */
   const stop = useCallback(() => {
@@ -108,10 +156,12 @@ export function CompareView({ song }: { song: Song }) {
   }, [])
 
   const ownGainValue = useCallback(
-    (listen: boolean) => {
+    (listen: boolean, simulated: boolean) => {
       if (!listen) return 0.0001
-      if (!loudnessMatch || !analysis) return 1
-      return Math.pow(10, (analysis.lufsRef - analysis.lufsOwn) / 20)
+      let db = 0
+      if (loudnessMatch && analysis) db += analysis.lufsRef - analysis.lufsOwn
+      if (simulated && analysis) db += analysis.makeupDb
+      return Math.pow(10, db / 20)
     },
     [loudnessMatch, analysis]
   )
@@ -126,20 +176,49 @@ export function CompareView({ song }: { song: Song }) {
       refSrc.buffer = refBuf
       const refGain = ctx.createGain()
       refSrc.connect(refGain).connect(ctx.destination)
+
       const ownSrc = ctx.createBufferSource()
       ownSrc.buffer = ownBuf
       const ownGain = ctx.createGain()
-      ownSrc.connect(ownGain).connect(ctx.destination)
+      const simulated = simulate && !!analysis
+      let ownLatency = 0
+      let head: AudioNode = ownSrc
+      if (simulated) {
+        // suggested EQ as a linear-phase FIR convolver
+        if (!firRef.current) firRef.current = eqCurveToFir(analysis!.eqCurve, FIR_TAPS)
+        const fir = firRef.current
+        const irBuf = ctx.createBuffer(1, fir.length, ctx.sampleRate)
+        irBuf.copyToChannel(fir as Float32Array<ArrayBuffer>, 0)
+        const conv = ctx.createConvolver()
+        conv.normalize = false
+        conv.buffer = irBuf
+        head.connect(conv)
+        head = conv
+        ownLatency += FIR_TAPS / 2 / ctx.sampleRate
+        // suggested compressor
+        const rec = analysis!.comp
+        if (rec.ratio !== null && rec.thresholdDb !== null) {
+          const comp = ctx.createDynamicsCompressor()
+          comp.threshold.value = Math.max(-100, rec.thresholdDb)
+          comp.ratio.value = Math.min(20, rec.ratio)
+          comp.knee.value = 6
+          comp.attack.value = rec.attackMs / 1000
+          comp.release.value = rec.releaseMs / 1000
+          head.connect(comp)
+          head = comp
+        }
+      }
+      head.connect(ownGain).connect(ctx.destination)
       refGain.gain.value = listenOwn ? 0.0001 : 1
-      ownGain.gain.value = ownGainValue(listenOwn)
+      ownGain.gain.value = ownGainValue(listenOwn, simulated)
 
       const t0 = ctx.currentTime + 0.05
       refSrc.start(t0, fromSec)
-      // own timeline position = timeline − offset
-      const ownPos = fromSec - offsetSec
+      // own timeline position = timeline − offset; FIR delay starts it earlier
+      const ownPos = fromSec - offsetSec + ownLatency
       if (ownPos >= 0 && ownPos < ownBuf.duration) ownSrc.start(t0, ownPos)
       else if (ownPos < 0) ownSrc.start(t0 - ownPos, 0)
-      graphRef.current = { refSrc, ownSrc, refGain, ownGain, startCtxTime: t0, startPos: fromSec }
+      graphRef.current = { refSrc, ownSrc, refGain, ownGain, startCtxTime: t0, startPos: fromSec, simulated }
       refSrc.onended = () => {
         if (graphRef.current?.refSrc === refSrc) stop()
       }
@@ -152,7 +231,7 @@ export function CompareView({ song }: { song: Song }) {
       }
       rafRef.current = requestAnimationFrame(tick)
     },
-    [refBuf, ownBuf, offsetSec, listenOwn, ownGainValue, stop]
+    [refBuf, ownBuf, offsetSec, listenOwn, simulate, analysis, ownGainValue, stop]
   )
 
   /* A/B switch on the live graph (10 ms ramp — no click) */
@@ -163,11 +242,22 @@ export function CompareView({ song }: { song: Song }) {
       if (g) {
         const t = audioContext().currentTime
         g.refGain.gain.setTargetAtTime(own ? 0.0001 : 1, t, 0.01)
-        g.ownGain.gain.setTargetAtTime(ownGainValue(own), t, 0.01)
+        g.ownGain.gain.setTargetAtTime(ownGainValue(own, g.simulated), t, 0.01)
       }
     },
     [ownGainValue]
   )
+
+  /* toggling simulate mid-play rebuilds the graph at the current position */
+  const toggleSimulate = useCallback(() => {
+    setSimulate((v) => !v)
+  }, [])
+  useEffect(() => {
+    if (playing && graphRef.current && graphRef.current.simulated !== (simulate && !!analysis)) {
+      play(playhead ?? 0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulate])
 
   useEffect(() => stop, [stop, refStem?.id, ownStem?.id])
 
@@ -273,6 +363,12 @@ export function CompareView({ song }: { song: Song }) {
         <button className={'chip' + (listenOwn ? ' on' : '')} style={{ height: 34, padding: '0 16px' }} onClick={() => setListen(true)}>
           B · {tr('cmp.legendOwn')}
         </button>
+        <label className="row gap8" style={{ fontSize: 12.5, color: 'var(--text-mid)', cursor: 'pointer' }}>
+          {tr('cmp.simulate')}
+          <button className={'cv-toggle' + (simulate ? ' on' : '')} onClick={toggleSimulate} disabled={!analysis}>
+            <span className="knob" />
+          </button>
+        </label>
         <label className="row gap8" style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--text-mid)', cursor: 'pointer' }}>
           {tr('cmp.loudnessMatch')}
           {analysis && (
@@ -296,11 +392,16 @@ export function CompareView({ song }: { song: Song }) {
       {error && <span style={{ fontSize: 12.5, color: 'var(--lab-red)' }}>{error}</span>}
       {analysis && (
         <>
-          <div className="card" style={{ padding: 14, animation: 'view-in .3s ease both' }}>
-            <SpectrumChart refSpec={analysis.refSpec} ownSpec={analysis.ownSpec} eqCurve={analysis.eqCurve} />
+          <div className="row gap12" style={{ alignItems: 'stretch', flexWrap: 'wrap', animation: 'view-in .3s ease both' }}>
+            <div className="card grow" style={{ padding: 14, minWidth: 380 }}>
+              <SpectrumCompareChart refSpec={analysis.refSpec} ownSpec={analysis.ownSpec} />
+            </div>
+            <div className="card grow" style={{ padding: 14, minWidth: 380 }}>
+              <EqCurveChart spec={analysis.refSpec} eqCurve={analysis.eqCurve} />
+            </div>
           </div>
           <div style={{ animation: 'view-in .3s ease both', animationDelay: '80ms' }}>
-            <CompCard rec={analysis.comp} />
+            <CompCard rec={analysis.comp} dynamics={analysis.dynamics} />
           </div>
         </>
       )}

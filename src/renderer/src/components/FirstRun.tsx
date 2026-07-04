@@ -20,6 +20,7 @@ interface InstallProgress {
 interface ManifestRow {
   name: string
   kind: string
+  roleKey: string
   sizeLabel: string
 }
 
@@ -67,9 +68,10 @@ export function FirstRun({ onDone }: FirstRunProps) {
   useEffect(() => {
     if (!hasApi) {
       setManifest([
-        { name: 'Python Runtime', kind: 'python-runtime', sizeLabel: '~45 MB' },
-        { name: 'Audio Engine', kind: 'pip', sizeLabel: '~800 MB' },
-        { name: 'Separation Model', kind: 'model', sizeLabel: '~600 MB' }
+        { name: 'Python Runtime', kind: 'python-runtime', roleKey: 'python-runtime', sizeLabel: '~45 MB' },
+        { name: 'Audio Engine', kind: 'pip', roleKey: 'pip', sizeLabel: '~800 MB' },
+        { name: 'Vocal Model', kind: 'model', roleKey: 'model', sizeLabel: '~600 MB' },
+        { name: 'Karaoke Model', kind: 'model', roleKey: 'model-karaoke', sizeLabel: '~250 MB' }
       ])
       return
     }
@@ -222,7 +224,7 @@ export function FirstRun({ onDone }: FirstRunProps) {
                     <div key={row.name} className="cv-group-row" style={{ animation: 'view-in .32s ease both', animationDelay: 80 + i * 55 + 'ms' }}>
                       <Icon name="bolt" className="ic-sm" style={{ color: 'var(--text-lo)' }} />
                       <span style={{ fontSize: 12.5, width: 132 }}>{row.name}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--text-mid)', flex: 1 }}>{tr('fr.role.' + row.kind)}</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-mid)', flex: 1 }}>{tr('fr.role.' + row.roleKey)}</span>
                       <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>{row.sizeLabel}</span>
                     </div>
                   ))}

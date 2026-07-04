@@ -302,6 +302,69 @@ function percentile(sorted: Float32Array, p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))]
 }
 
+/* RMS envelope over time in dB (no silence gating — for the dynamics chart) */
+export function envelopeSeriesDb(ch: Float32Array, sampleRate: number, frameMs = 50): { frameSec: number; db: Float32Array } {
+  const frame = Math.max(1, Math.round((sampleRate * frameMs) / 1000))
+  const n = Math.floor(ch.length / frame)
+  const db = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    let sum = 0
+    const base = i * frame
+    for (let j = 0; j < frame; j++) sum += ch[base + j] * ch[base + j]
+    db[i] = Math.max(-80, 10 * Math.log10(sum / frame + 1e-20))
+  }
+  return { frameSec: frame / sampleRate, db }
+}
+
+/* Feed the envelope through the suggested compressor (static curve +
+   one-pole attack/release smoothing on the gain) → predicted envelope. */
+export function simulateComp(env: Float32Array, frameSec: number, thresholdDb: number, ratio: number, attackMs: number, releaseMs: number): Float32Array {
+  const out = new Float32Array(env.length)
+  const aAtk = Math.exp(-frameSec / Math.max(0.0005, attackMs / 1000))
+  const aRel = Math.exp(-frameSec / Math.max(0.005, releaseMs / 1000))
+  let gain = 0 // dB of gain reduction (≤ 0)
+  for (let i = 0; i < env.length; i++) {
+    const over = env[i] - thresholdDb
+    const target = over > 0 ? -over * (1 - 1 / ratio) : 0
+    const a = target < gain ? aAtk : aRel
+    gain = a * gain + (1 - a) * target
+    out[i] = env[i] + gain
+  }
+  return out
+}
+
+/* Linear-phase FIR from the EQ match curve (frequency-sampling method).
+   curve bins are laid out like the analysis spectrum (fftSize bins at
+   sampleRate); taps must equal that fftSize for the 1:1 mapping used here.
+   Group delay = taps/2 samples — compensate at playback start. */
+export function eqCurveToFir(curve: Float32Array, taps: number): Float32Array {
+  const fft = new FFT(taps)
+  const spectrum = fft.createComplexArray()
+  const half = taps / 2
+  for (let k = 0; k <= half; k++) {
+    const db = k < curve.length ? curve[Math.max(1, k)] : 0
+    const mag = Math.pow(10, db / 20)
+    const idx = k === half ? half : k
+    spectrum[2 * idx] = mag
+    spectrum[2 * idx + 1] = 0
+    if (k > 0 && k < half) {
+      // conjugate symmetry for a real impulse response
+      spectrum[2 * (taps - k)] = mag
+      spectrum[2 * (taps - k) + 1] = 0
+    }
+  }
+  const time = fft.createComplexArray()
+  fft.inverseTransform(time, spectrum)
+  const fir = new Float32Array(taps)
+  // rotate zero-phase response to linear phase + hann window the edges
+  for (let n = 0; n < taps; n++) {
+    const src = (n + half) % taps
+    const w = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (taps - 1)))
+    fir[n] = time[2 * src] * w
+  }
+  return fir
+}
+
 export function compRecommendation(refMono: Float32Array, ownMono: Float32Array, sampleRate: number): CompRecommendation {
   const refEnv = envelopeDb(refMono, sampleRate, 10).sort()
   const ownEnv = envelopeDb(ownMono, sampleRate, 10).sort()

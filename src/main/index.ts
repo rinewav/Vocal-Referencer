@@ -9,7 +9,7 @@ protocol.registerSchemesAsPrivileged([
 import { getSetting, setSetting } from './settings'
 import { install, health, manifestSummary } from './engine/installer'
 import { enqueueSeparation, Preset } from './engine/sidecar'
-import { addSong, addOwnStem, listSongs, setTags } from './library'
+import { addSong, addOwnStem, listSongs, renameSong, deleteSong } from './library'
 import { libraryRoot } from './db'
 
 function createWindow(): void {
@@ -63,7 +63,8 @@ app.whenReady().then(() => {
   ipcMain.handle('library:list', () => listSongs())
   ipcMain.handle('library:add', (_e, filePath: string) => addSong(filePath))
   ipcMain.handle('library:add-own', (_e, songId: string, filePath: string) => addOwnStem(songId, filePath))
-  ipcMain.handle('library:set-tags', (_e, songId: string, tags: string[]) => setTags(songId, tags))
+  ipcMain.handle('library:rename', (_e, songId: string, title: string) => renameSong(songId, title))
+  ipcMain.handle('library:delete', (_e, songId: string) => deleteSong(songId))
 
   ipcMain.handle('separate:start', (_e, songId: string, preset: Preset) => enqueueSeparation(songId, preset))
 

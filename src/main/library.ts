@@ -1,7 +1,7 @@
 /* Library operations: add songs (copy into userData/library/<id>/),
    attach own-vocal stems, list everything for the renderer. */
 import { randomUUID } from 'crypto'
-import { mkdirSync, copyFileSync } from 'fs'
+import { mkdirSync, copyFileSync, rmSync } from 'fs'
 import { join, extname, basename } from 'path'
 import { getDb, libraryRoot, SongRow, StemRow, StemKind } from './db'
 
@@ -82,8 +82,17 @@ export function listSongs(): SongWithStems[] {
   return songs.map((s) => ({ ...s, stems: stemsBySong.get(s.id) ?? [] }))
 }
 
-export function setTags(songId: string, tags: string[]): void {
-  getDb().prepare('UPDATE songs SET tags = ? WHERE id = ?').run(JSON.stringify(tags), songId)
+export function renameSong(songId: string, title: string): void {
+  const trimmed = title.trim()
+  if (!trimmed) return
+  getDb().prepare('UPDATE songs SET title = ? WHERE id = ?').run(trimmed, songId)
+}
+
+export function deleteSong(songId: string): void {
+  const db = getDb()
+  db.prepare('DELETE FROM stems WHERE song_id = ?').run(songId)
+  db.prepare('DELETE FROM songs WHERE id = ?').run(songId)
+  rmSync(join(libraryRoot(), songId), { recursive: true, force: true })
 }
 
 export function getSong(songId: string): SongRow | undefined {
