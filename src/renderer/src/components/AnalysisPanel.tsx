@@ -140,7 +140,23 @@ export function EqCurveChart({
     if (!canvas) return
     const { ctx, W, H } = setupCanvas(canvas)
     drawFreqGrid(ctx, W, H)
-    const yFor = (db: number) => H / 2 - (Math.max(-12, Math.min(12, db)) / 12) * (H / 2 - 8)
+
+    // fitted-band response, precomputed so the scale can include it
+    const N = 240
+    const freqs = new Float32Array(N)
+    for (let i = 0; i < N; i++) freqs[i] = F_LO * Math.pow(F_HI / F_LO, i / (N - 1))
+    const resp = bands.length > 0 ? bandsResponseDb(bands, freqs) : null
+
+    // auto scale: symmetric range covering both curves, min ±6 dB
+    let peak = 6
+    for (let k = 1; k < eqCurve.length; k++) {
+      const f = (k * spec.sampleRate) / spec.fftSize
+      if (f < F_LO || f > F_HI) continue
+      if (Math.abs(eqCurve[k]) > peak) peak = Math.abs(eqCurve[k])
+    }
+    if (resp) for (let i = 0; i < N; i++) if (Math.abs(resp[i]) > peak) peak = Math.abs(resp[i])
+    const range = Math.ceil(peak + 1)
+    const yFor = (db: number) => H / 2 - (db / range) * (H / 2 - 8)
 
     // zero line
     ctx.strokeStyle = 'rgba(255,255,255,0.14)'
@@ -167,11 +183,7 @@ export function EqCurveChart({
     ctx.stroke()
 
     // fitted-band response (what actually lands in the .ffp) — dashed white
-    if (bands.length > 0) {
-      const N = 240
-      const freqs = new Float32Array(N)
-      for (let i = 0; i < N; i++) freqs[i] = F_LO * Math.pow(F_HI / F_LO, i / (N - 1))
-      const resp = bandsResponseDb(bands, freqs)
+    if (resp) {
       ctx.strokeStyle = 'rgba(255,255,255,0.55)'
       ctx.lineWidth = 1.3
       ctx.setLineDash([5, 4])
@@ -195,9 +207,9 @@ export function EqCurveChart({
 
     ctx.fillStyle = 'rgba(255,255,255,0.35)'
     ctx.font = '9.5px "IBM Plex Mono", monospace'
-    ctx.fillText('+12', 2, 10)
+    ctx.fillText(`+${range}`, 2, 10)
     ctx.fillText('0', 2, H / 2 - 3)
-    ctx.fillText('-12', 2, H - 12)
+    ctx.fillText(`-${range}`, 2, H - 12)
   }, [spec, eqCurve, bands])
 
   const doExport = async () => {
