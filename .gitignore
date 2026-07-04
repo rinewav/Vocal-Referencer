@@ -3,3 +3,10 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# App
+node_modules/
+out/
+dist/
+*.log
+.DS_Store

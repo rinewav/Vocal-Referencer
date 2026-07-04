@@ -1,0 +1,37 @@
+/* Vocal Referencer — app styles.
+   covo.css (りね標準DS) を先に読み、Nightfallプリセットで上書きする。
+   テーマ値の出典: Design_System.md テーマプリセット表（Nightfall行）。 */
+@import './assets/covo.css';
+
+:root {
+  /* ---- Nightfall（青基調） ---- */
+  --accent-l: 0.70;
+  --accent-c: 0.13;
+  --accent-h: 255;
+
+  --bg-canvas: oklch(0.18 0.008 255);
+  --bg-canvas-2: oklch(0.155 0.008 255);
+  --bg-chrome: oklch(0.165 0.009 255);
+  --bg-elevated: oklch(0.225 0.01 255);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* macOS hiddenInset: 上端をドラッグ領域に */
+.drag-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  -webkit-app-region: drag;
+  z-index: 40;
+}
+.drag-strip button,
+.drag-strip .no-drag {
+  -webkit-app-region: no-drag;
+}
