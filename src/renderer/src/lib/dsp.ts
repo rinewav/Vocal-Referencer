@@ -357,12 +357,12 @@ export function bandsResponseDb(bands: EqBandFit[], freqs: Float32Array): Float3
   return out
 }
 
-/* Greedy iterative fit: place a bell at the residual's largest deviation,
-   grid-search gain/Q locally, subtract, repeat. Good enough for a starting
-   point the user then tweaks inside Pro-Q. */
-export function fitParametricBands(curve: Float32Array, spec: Spectrum, maxBands = 8, tolDb = 0.7): EqBandFit[] {
-  // resample the bin-indexed curve onto a 200-point log-frequency grid
-  const N = 200
+/* Fit the match curve with parametric bells for Pro-Q export.
+   Two phases: greedy seeding at the residual's largest deviation, then
+   coordinate-descent refinement (each band re-optimized against the
+   residual of all others). Uses the full 24 Pro-Q slots by default. */
+export function fitParametricBands(curve: Float32Array, spec: Spectrum, maxBands = 24, tolDb = 0.2): EqBandFit[] {
+  const N = 240
   const freqs = new Float32Array(N)
   const target = new Float32Array(N)
   for (let i = 0; i < N; i++) {
@@ -371,40 +371,80 @@ export function fitParametricBands(curve: Float32Array, spec: Spectrum, maxBands
     const bin = Math.max(1, Math.min(curve.length - 1, Math.round((f * spec.fftSize) / spec.sampleRate)))
     target[i] = curve[bin]
   }
-  const residual = Float32Array.from(target)
-  const bands: EqBandFit[] = []
-  const qGrid = [0.4, 0.7, 1.0, 1.4, 2.0, 3.0, 4.5, 7.0, 10.0]
 
-  for (let n = 0; n < maxBands; n++) {
-    let peakIdx = 0
-    for (let i = 0; i < N; i++) if (Math.abs(residual[i]) > Math.abs(residual[peakIdx])) peakIdx = i
+  const qGrid = [0.3, 0.45, 0.7, 1.0, 1.4, 2.0, 3.0, 4.5, 7.0, 10.0, 14.0, 18.0]
+  const gainScales = [0.6, 0.75, 0.9, 1.0, 1.1, 1.25]
+
+  const response = (bands: EqBandFit[], skip: number): Float32Array => {
+    const out = new Float32Array(N)
+    for (let b = 0; b < bands.length; b++) {
+      if (b === skip) continue
+      for (let i = 0; i < N; i++) out[i] += bellDb(freqs[i], bands[b].freqHz, bands[b].gainDb, bands[b].q)
+    }
+    return out
+  }
+
+  /* best bell against `residual`, seeded around grid index `peakIdx` */
+  const solveBand = (residual: Float32Array, peakIdx: number): EqBandFit => {
     const peakVal = residual[peakIdx]
-    if (Math.abs(peakVal) < tolDb) break
-    const f0 = freqs[peakIdx]
-
-    let best: EqBandFit = { freqHz: f0, gainDb: peakVal, q: 1.4 }
+    let best: EqBandFit = { freqHz: freqs[peakIdx], gainDb: Math.max(-12, Math.min(12, peakVal)), q: 1.4 }
     let bestErr = Infinity
-    for (const q of qGrid) {
-      for (const gs of [0.7, 0.85, 1.0, 1.15]) {
-        const g = Math.max(-12, Math.min(12, peakVal * gs))
-        let err = 0
-        for (let i = 0; i < N; i++) {
-          // weight the local ±2 octaves around the band most
-          const dist = Math.abs(Math.log2(freqs[i] / f0))
-          const w = dist < 2 ? 1 : 0.15
-          const r = residual[i] - bellDb(freqs[i], f0, g, q)
-          err += w * r * r
-        }
-        if (err < bestErr) {
-          bestErr = err
-          best = { freqHz: f0, gainDb: g, q }
+    for (let fi = Math.max(0, peakIdx - 4); fi <= Math.min(N - 1, peakIdx + 4); fi += 2) {
+      const f0 = freqs[fi]
+      for (const q of qGrid) {
+        for (const gs of gainScales) {
+          const g = Math.max(-12, Math.min(12, peakVal * gs))
+          let err = 0
+          for (let i = 0; i < N; i++) {
+            const dist = Math.abs(Math.log2(freqs[i] / f0))
+            const w = dist < 2 ? 1 : 0.2
+            const r = residual[i] - bellDb(freqs[i], f0, g, q)
+            err += w * r * r
+          }
+          if (err < bestErr) {
+            bestErr = err
+            best = { freqHz: f0, gainDb: g, q }
+          }
         }
       }
     }
-    bands.push(best)
-    for (let i = 0; i < N; i++) residual[i] -= bellDb(freqs[i], best.freqHz, best.gainDb, best.q)
+    return best
   }
-  return bands.sort((a, b) => a.freqHz - b.freqHz)
+
+  /* phase 1: greedy seeding */
+  const bands: EqBandFit[] = []
+  const residual = Float32Array.from(target)
+  while (bands.length < maxBands) {
+    let peakIdx = 0
+    for (let i = 0; i < N; i++) if (Math.abs(residual[i]) > Math.abs(residual[peakIdx])) peakIdx = i
+    if (Math.abs(residual[peakIdx]) < tolDb) break
+    const band = solveBand(residual, peakIdx)
+    bands.push(band)
+    for (let i = 0; i < N; i++) residual[i] -= bellDb(freqs[i], band.freqHz, band.gainDb, band.q)
+  }
+
+  /* phase 2: coordinate-descent refinement, 3 sweeps */
+  for (let sweep = 0; sweep < 3; sweep++) {
+    for (let b = 0; b < bands.length; b++) {
+      const others = response(bands, b)
+      const res = new Float32Array(N)
+      let peakIdx = 0
+      for (let i = 0; i < N; i++) {
+        res[i] = target[i] - others[i]
+        if (Math.abs(res[i]) > Math.abs(res[peakIdx])) peakIdx = i
+      }
+      // re-seed near the band's current frequency, not the global peak,
+      // so refinement stays local; fall back to the peak if gain vanished
+      let seedIdx = Math.round((Math.log2(bands[b].freqHz / 20) / Math.log2(20000 / 20)) * (N - 1))
+      seedIdx = Math.max(0, Math.min(N - 1, seedIdx))
+      if (Math.abs(res[seedIdx]) < 0.1) seedIdx = peakIdx
+      bands[b] = solveBand(res, seedIdx)
+    }
+  }
+
+  /* drop bands that refined away to nothing */
+  const kept = bands.filter((b) => Math.abs(b.gainDb) >= 0.3)
+  return kept.sort((a, b) => a.freqHz - b.freqHz)
 }
 
 /* Linear-phase FIR from the EQ match curve (frequency-sampling method).
