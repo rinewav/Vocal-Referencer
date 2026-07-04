@@ -14,6 +14,8 @@ import {
   compRecommendation,
   envelopeSeriesDb,
   simulateComp,
+  fitParametricBands,
+  EqBandFit,
   Spectrum,
   CompRecommendation
 } from '../lib/dsp'
@@ -28,6 +30,7 @@ interface Analysis {
   refSpec: Spectrum
   ownSpec: Spectrum
   eqCurve: Float32Array
+  eqBands: EqBandFit[]
   comp: CompRecommendation
   dynamics: DynamicsData
   /* average gain reduction of the simulated comp — used as makeup gain */
@@ -98,6 +101,7 @@ export function CompareView({ song }: { song: Song }) {
         await nextTick()
         const ownSpec = averageSpectrum(ownMono, own.sampleRate)
         const eqCurve = eqMatchCurve(refSpec, ownSpec)
+        const eqBands = fitParametricBands(eqCurve, refSpec)
         const comp = compRecommendation(refMono, ownMono, ref.sampleRate)
         const refEnv = envelopeSeriesDb(refMono, ref.sampleRate)
         const ownEnv = envelopeSeriesDb(ownMono, own.sampleRate)
@@ -122,7 +126,7 @@ export function CompareView({ song }: { song: Song }) {
           makeupDb = n > 0 ? sum / n : 0
         }
         if (canceled) return
-        setAnalysis({ lufsRef, lufsOwn, refSpec, ownSpec, eqCurve, comp, dynamics, makeupDb })
+        setAnalysis({ lufsRef, lufsOwn, refSpec, ownSpec, eqCurve, eqBands, comp, dynamics, makeupDb })
       } catch (err) {
         if (!canceled) setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -397,7 +401,12 @@ export function CompareView({ song }: { song: Song }) {
               <SpectrumCompareChart refSpec={analysis.refSpec} ownSpec={analysis.ownSpec} />
             </div>
             <div className="card grow" style={{ padding: 14, minWidth: 380 }}>
-              <EqCurveChart spec={analysis.refSpec} eqCurve={analysis.eqCurve} />
+              <EqCurveChart
+                spec={analysis.refSpec}
+                eqCurve={analysis.eqCurve}
+                bands={analysis.eqBands}
+                exportName={`${song.title} EQ match.ffp`}
+              />
             </div>
           </div>
           <div style={{ animation: 'view-in .3s ease both', animationDelay: '80ms' }}>

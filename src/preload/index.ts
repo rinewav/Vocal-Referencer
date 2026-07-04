@@ -34,6 +34,8 @@ const api = {
       }
     }
   },
+  exportProQ: (bands: { freqHz: number; gainDb: number; q: number }[], defaultName: string) =>
+    ipcRenderer.invoke('export:proq', bands, defaultName) as Promise<string | null>,
   pickAudio: (multi: boolean) => ipcRenderer.invoke('dialog:pick-audio', multi) as Promise<string[] | null>,
   dragStart: (paths: string[]) => ipcRenderer.send('drag:start', paths),
   pathForFile: (file: File) => webUtils.getPathForFile(file)

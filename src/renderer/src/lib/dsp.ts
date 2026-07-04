@@ -333,6 +333,80 @@ export function simulateComp(env: Float32Array, frameSec: number, thresholdDb: n
   return out
 }
 
+/* ---------- parametric band fitting (for Pro-Q export) ---------- */
+
+export interface EqBandFit {
+  freqHz: number
+  gainDb: number
+  q: number
+}
+
+/* analog-prototype peaking bell magnitude in dB (RBJ-style, symmetric) */
+function bellDb(f: number, f0: number, gainDb: number, q: number): number {
+  if (gainDb === 0) return 0
+  const A = Math.pow(10, gainDb / 40)
+  const w = f / f0
+  const num = (1 - w * w) ** 2 + (A * w / q) ** 2
+  const den = (1 - w * w) ** 2 + (w / (A * q)) ** 2
+  return 10 * Math.log10(num / den)
+}
+
+export function bandsResponseDb(bands: EqBandFit[], freqs: Float32Array): Float32Array {
+  const out = new Float32Array(freqs.length)
+  for (const b of bands) for (let i = 0; i < freqs.length; i++) out[i] += bellDb(freqs[i], b.freqHz, b.gainDb, b.q)
+  return out
+}
+
+/* Greedy iterative fit: place a bell at the residual's largest deviation,
+   grid-search gain/Q locally, subtract, repeat. Good enough for a starting
+   point the user then tweaks inside Pro-Q. */
+export function fitParametricBands(curve: Float32Array, spec: Spectrum, maxBands = 8, tolDb = 0.7): EqBandFit[] {
+  // resample the bin-indexed curve onto a 200-point log-frequency grid
+  const N = 200
+  const freqs = new Float32Array(N)
+  const target = new Float32Array(N)
+  for (let i = 0; i < N; i++) {
+    const f = 20 * Math.pow(20000 / 20, i / (N - 1))
+    freqs[i] = f
+    const bin = Math.max(1, Math.min(curve.length - 1, Math.round((f * spec.fftSize) / spec.sampleRate)))
+    target[i] = curve[bin]
+  }
+  const residual = Float32Array.from(target)
+  const bands: EqBandFit[] = []
+  const qGrid = [0.4, 0.7, 1.0, 1.4, 2.0, 3.0, 4.5, 7.0, 10.0]
+
+  for (let n = 0; n < maxBands; n++) {
+    let peakIdx = 0
+    for (let i = 0; i < N; i++) if (Math.abs(residual[i]) > Math.abs(residual[peakIdx])) peakIdx = i
+    const peakVal = residual[peakIdx]
+    if (Math.abs(peakVal) < tolDb) break
+    const f0 = freqs[peakIdx]
+
+    let best: EqBandFit = { freqHz: f0, gainDb: peakVal, q: 1.4 }
+    let bestErr = Infinity
+    for (const q of qGrid) {
+      for (const gs of [0.7, 0.85, 1.0, 1.15]) {
+        const g = Math.max(-12, Math.min(12, peakVal * gs))
+        let err = 0
+        for (let i = 0; i < N; i++) {
+          // weight the local ±2 octaves around the band most
+          const dist = Math.abs(Math.log2(freqs[i] / f0))
+          const w = dist < 2 ? 1 : 0.15
+          const r = residual[i] - bellDb(freqs[i], f0, g, q)
+          err += w * r * r
+        }
+        if (err < bestErr) {
+          bestErr = err
+          best = { freqHz: f0, gainDb: g, q }
+        }
+      }
+    }
+    bands.push(best)
+    for (let i = 0; i < N; i++) residual[i] -= bellDb(freqs[i], best.freqHz, best.gainDb, best.q)
+  }
+  return bands.sort((a, b) => a.freqHz - b.freqHz)
+}
+
 /* Linear-phase FIR from the EQ match curve (frequency-sampling method).
    curve bins are laid out like the analysis spectrum (fftSize bins at
    sampleRate); taps must equal that fftSize for the 1:1 mapping used here.

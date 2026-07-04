@@ -3,8 +3,9 @@
    - EqCurveChart: suggested EQ curve alone (green)
    - DynamicsChart: envelope over time, ref / own / own+suggested comp
    Data colors: --lab-blue (ref), --lab-pink (own), --lab-green (EQ / comped). */
-import React, { useEffect, useRef } from 'react'
-import { Spectrum, smoothSpectrum, CompRecommendation, simulateComp } from '../lib/dsp'
+import React, { useEffect, useRef, useState } from 'react'
+import { Spectrum, smoothSpectrum, CompRecommendation, simulateComp, EqBandFit, bandsResponseDb } from '../lib/dsp'
+import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
 
 const F_LO = 20
@@ -119,15 +120,27 @@ export function SpectrumCompareChart({ refSpec, ownSpec }: { refSpec: Spectrum; 
   )
 }
 
-export function EqCurveChart({ spec, eqCurve }: { spec: Spectrum; eqCurve: Float32Array }) {
+export function EqCurveChart({
+  spec,
+  eqCurve,
+  bands,
+  exportName
+}: {
+  spec: Spectrum
+  eqCurve: Float32Array
+  bands: EqBandFit[]
+  exportName: string
+}) {
   useLang()
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const { ctx, W, H } = setupCanvas(canvas)
     drawFreqGrid(ctx, W, H)
+    const yFor = (db: number) => H / 2 - (Math.max(-12, Math.min(12, db)) / 12) * (H / 2 - 8)
 
     // zero line
     ctx.strokeStyle = 'rgba(255,255,255,0.14)'
@@ -136,6 +149,7 @@ export function EqCurveChart({ spec, eqCurve }: { spec: Spectrum; eqCurve: Float
     ctx.lineTo(W, H / 2)
     ctx.stroke()
 
+    // ideal match curve (green)
     ctx.strokeStyle = GREEN
     ctx.lineWidth = 2
     ctx.beginPath()
@@ -144,23 +158,65 @@ export function EqCurveChart({ spec, eqCurve }: { spec: Spectrum; eqCurve: Float
       const f = (k * spec.sampleRate) / spec.fftSize
       if (f < F_LO || f > F_HI) continue
       const x = xForFreq(f, W)
-      const y = H / 2 - (eqCurve[k] / 12) * (H / 2 - 8)
+      const y = yFor(eqCurve[k])
       if (!started) {
         ctx.moveTo(x, y)
         started = true
       } else ctx.lineTo(x, y)
     }
     ctx.stroke()
+
+    // fitted-band response (what actually lands in the .ffp) — dashed white
+    if (bands.length > 0) {
+      const N = 240
+      const freqs = new Float32Array(N)
+      for (let i = 0; i < N; i++) freqs[i] = F_LO * Math.pow(F_HI / F_LO, i / (N - 1))
+      const resp = bandsResponseDb(bands, freqs)
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+      ctx.lineWidth = 1.3
+      ctx.setLineDash([5, 4])
+      ctx.beginPath()
+      for (let i = 0; i < N; i++) {
+        const x = xForFreq(freqs[i], W)
+        const y = yFor(resp[i])
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+      ctx.setLineDash([])
+      // band markers
+      ctx.fillStyle = GREEN
+      for (const b of bands) {
+        ctx.beginPath()
+        ctx.arc(xForFreq(b.freqHz, W), yFor(b.gainDb), 3.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+
     ctx.fillStyle = 'rgba(255,255,255,0.35)'
     ctx.font = '9.5px "IBM Plex Mono", monospace'
     ctx.fillText('+12', 2, 10)
     ctx.fillText('0', 2, H / 2 - 3)
     ctx.fillText('-12', 2, H - 12)
-  }, [spec, eqCurve])
+  }, [spec, eqCurve, bands])
+
+  const doExport = async () => {
+    const path = await window.vr!.exportProQ(bands, exportName)
+    if (path) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    }
+  }
 
   return (
     <div className="col gap8 grow">
-      <Legend items={[[GREEN, tr('cmp.eqCurve')]]} />
+      <div className="row gap12">
+        <Legend items={[[GREEN, tr('cmp.eqCurve')], ['rgba(255,255,255,0.55)', tr('cmp.legendFit')]]} />
+        <button className="btn ghost" style={{ height: 26, fontSize: 12, marginLeft: 'auto' }} onClick={doExport} disabled={bands.length === 0}>
+          <Icon name="download" className="ic-sm" />
+          {saved ? tr('cmp.exported') : tr('cmp.exportProq')}
+        </button>
+      </div>
       <canvas ref={canvasRef} style={{ width: '100%', height: 220, display: 'block' }} />
     </div>
   )

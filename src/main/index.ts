@@ -10,6 +10,7 @@ import { getSetting, setSetting } from './settings'
 import { install, health, manifestSummary } from './engine/installer'
 import { enqueueSeparation, Preset } from './engine/sidecar'
 import { addSong, addOwnStem, listSongs, renameSong, deleteSong } from './library'
+import { exportProQ, ExportBand } from './proq'
 import { libraryRoot } from './db'
 
 function createWindow(): void {
@@ -67,6 +68,8 @@ app.whenReady().then(() => {
   ipcMain.handle('library:delete', (_e, songId: string) => deleteSong(songId))
 
   ipcMain.handle('separate:start', (_e, songId: string, preset: Preset) => enqueueSeparation(songId, preset))
+
+  ipcMain.handle('export:proq', (_e, bands: ExportBand[], defaultName: string) => exportProQ(bands, defaultName))
 
   ipcMain.handle('dialog:pick-audio', async (_e, multi: boolean) => {
     const res = await dialog.showOpenDialog({
