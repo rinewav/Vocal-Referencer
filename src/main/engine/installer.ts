@@ -111,13 +111,11 @@ async function installPipDeps(part: EnginePart): Promise<void> {
 }
 
 /* Model download is delegated to audio-separator: it resolves the ckpt +
-   config-yaml pairing from its own registry, so we never maintain URLs. */
+   config-yaml pairing from its own registry, so we never maintain URLs.
+   No existsSync pre-skip: a crashed download leaves a partial ckpt that
+   would pass that check — the CLI itself verifies and is fast when done. */
 async function installModel(part: EnginePart): Promise<void> {
   mkdirSync(modelsDir(), { recursive: true })
-  if (existsSync(join(modelsDir(), part.modelFilename!))) {
-    broadcast({ name: part.name, received: 1, total: 1, done: true })
-    return
-  }
   broadcast({ name: part.name, received: 0, total: 0, done: false })
   const code = await runCommand(
     audioSeparatorBin(),
