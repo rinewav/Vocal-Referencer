@@ -121,7 +121,7 @@ export function LibraryView({
         if (paths.length) addFiles(paths)
       }}
     >
-      <div className="row gap10">
+      <div className="row gap10" style={{ animation: 'view-in .3s ease both' }}>
         <button className="btn primary" onClick={pickAndAdd}>
           <Icon name="plus" className="ic-sm" />
           {tr('lib.add')}
@@ -130,7 +130,7 @@ export function LibraryView({
       </div>
 
       {songs.length === 0 && (
-        <div className="ph grow" style={{ borderRadius: 'var(--r-lg)', minHeight: 220 }}>
+        <div className="ph grow" style={{ borderRadius: 'var(--r-lg)', minHeight: 220, animation: 'view-in .3s ease both', animationDelay: '60ms' }}>
           <div className="col gap12" style={{ alignItems: 'center' }}>
             <Icon name="note" style={{ width: 28, height: 28, color: 'var(--text-lo)' }} />
             <span className="ph-cap">{tr('app.emptyLibrary')}</span>
@@ -138,14 +138,18 @@ export function LibraryView({
         </div>
       )}
 
-      {songs.map((song) => {
+      {songs.map((song, i) => {
         const prog = progress[song.id]
         const busy = prog && (prog.stage === 'separating' || prog.stage === 'model-download')
         const hasVocals = song.stems.some((s) => s.kind === 'vocals')
         const hasLead = song.stems.some((s) => s.kind === 'lead')
         const hasOwn = song.stems.some((s) => s.kind === 'own')
         return (
-          <div key={song.id} className="card col gap10" style={{ padding: 14 }}>
+          <div
+            key={song.id}
+            className="card col gap10"
+            style={{ padding: 14, animation: 'view-in .3s ease both', animationDelay: `${60 + Math.min(i, 8) * 55}ms` }}
+          >
             <div className="row gap10">
               <div className="col" style={{ gap: 2 }}>
                 <span style={{ fontSize: 14.5, fontWeight: 600 }}>{song.title}</span>

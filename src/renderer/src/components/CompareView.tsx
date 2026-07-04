@@ -201,7 +201,7 @@ export function CompareView({ song }: { song: Song }) {
   return (
     <div className="col gap12 grow" style={{ padding: '14px 16px', overflowY: 'auto', minHeight: 0 }}>
       {/* header: song + stem pickers */}
-      <div className="row gap10" style={{ flexWrap: 'wrap' }}>
+      <div className="row gap10" style={{ flexWrap: 'wrap', animation: 'view-in .3s ease both' }}>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600 }}>{song.title}</span>
         <div className="row gap6" style={{ marginLeft: 'auto' }}>
           {refCandidates.map((s) => (
@@ -220,7 +220,7 @@ export function CompareView({ song }: { song: Song }) {
 
       {/* waveforms */}
       {refBuf && ownBuf ? (
-        <div className="card col gap8" style={{ padding: 12 }}>
+        <div className="card col gap8" style={{ padding: 12, animation: 'view-in .3s ease both', animationDelay: '60ms' }}>
           <div className="row gap8" style={{ fontSize: 11.5, color: 'var(--text-mid)' }}>
             <span className="dot" style={{ background: 'var(--lab-blue)' }} />
             {tr('cmp.refTrack')}
@@ -262,7 +262,7 @@ export function CompareView({ song }: { song: Song }) {
       ) : null}
 
       {/* transport */}
-      <div className="row gap10" style={{ flexWrap: 'wrap' }}>
+      <div className="row gap10" style={{ flexWrap: 'wrap', animation: 'view-in .3s ease both', animationDelay: '120ms' }}>
         <button className="btn primary" style={{ width: 110 }} onClick={() => (playing ? stop() : play(playhead ?? 0))}>
           <Icon name={playing ? 'stop' : 'play'} className="ic-sm" />
           {playing ? tr('cmp.stop') : tr('cmp.play')}
@@ -296,10 +296,12 @@ export function CompareView({ song }: { song: Song }) {
       {error && <span style={{ fontSize: 12.5, color: 'var(--lab-red)' }}>{error}</span>}
       {analysis && (
         <>
-          <div className="card" style={{ padding: 14 }}>
+          <div className="card" style={{ padding: 14, animation: 'view-in .3s ease both' }}>
             <SpectrumChart refSpec={analysis.refSpec} ownSpec={analysis.ownSpec} eqCurve={analysis.eqCurve} />
           </div>
-          <CompCard rec={analysis.comp} />
+          <div style={{ animation: 'view-in .3s ease both', animationDelay: '80ms' }}>
+            <CompCard rec={analysis.comp} />
+          </div>
         </>
       )}
     </div>

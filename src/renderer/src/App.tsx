@@ -74,7 +74,7 @@ export function App() {
       ) : compareSong ? (
         <CompareView key={compareSong.id} song={compareSong} />
       ) : (
-        <div className="ph grow" style={{ margin: 16, borderRadius: 'var(--r-lg)' }}>
+        <div className="ph grow" style={{ margin: 16, borderRadius: 'var(--r-lg)', animation: 'view-in .3s ease both' }}>
           <span className="ph-cap">{tr('cmp.pickSong')}</span>
         </div>
       )}
