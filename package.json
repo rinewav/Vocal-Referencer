@@ -31,22 +31,31 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "category": "public.app-category.music",
       "identity": null
     },
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     }
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "fft.js": "^4.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tar": "^7.4.3"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.1.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

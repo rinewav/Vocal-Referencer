@@ -28,7 +28,28 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M12 18v3" />
     </>
   ),
-  play: <path d="M8 5.5l11 6.5-11 6.5V5.5z" />
+  play: <path d="M8 5.5l11 6.5-11 6.5V5.5z" />,
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />,
+  plus: (
+    <>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </>
+  ),
+  note: (
+    <>
+      <path d="M9 18V5.5L19 4v12.5" />
+      <circle cx="6.5" cy="18" r="2.5" />
+      <circle cx="16.5" cy="16.5" r="2.5" />
+    </>
+  ),
+  compare: (
+    <>
+      <path d="M12 3v18" />
+      <rect x="3.5" y="7" width="6" height="10" rx="1.5" />
+      <rect x="14.5" y="5" width="6" height="14" rx="1.5" />
+    </>
+  )
 }
 
 export interface IconProps extends React.SVGAttributes<SVGSVGElement> {
