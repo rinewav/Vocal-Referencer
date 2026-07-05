@@ -123,9 +123,6 @@ src/
 - **分離エンジン:** [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) を Python サイドカーとして初回ダウンロード方式で同梱。モデルは UVR モデル zoo の BS-Roformer / Mel-Roformer を使用
 - **解析:** レンダラ側の fft.js による DSP（平均スペクトラム・ラウドネス・ダイナミクス解析）
 
-## 🤝 コントリビュート
-
-バグ報告・機能要望は [Issues](https://github.com/rinewav/Vocal-Referencer/issues) へお願いします。Pull Request も歓迎です。
 
 ## 📄 ライセンス
 
