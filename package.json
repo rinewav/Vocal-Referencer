@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "dist": "electron-vite build && electron-builder",
     "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:win": "electron-vite build && electron-builder --win --x64"
+    "dist:win": "electron-vite build && electron-builder --win --x64 --arm64"
   },
   "build": {
     "appId": "jp.rine.vocalreferencer",
@@ -46,7 +46,8 @@
         {
           "target": "nsis",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ]
