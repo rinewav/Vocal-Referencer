@@ -60,6 +60,8 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
   const prefs = usePrefs()
   const [sec, setSec] = useState<string>('appearance')
   const [version, setVersion] = useState('')
+  const [resetArmed, setResetArmed] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   useEffect(() => {
     if (hasApi) window.vr!.appVersion().then(setVersion).catch(() => {})
@@ -73,6 +75,46 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  /* factory reset is a two-step confirm (arm → run); disarm after a few
+     seconds if the second click doesn't come */
+  useEffect(() => {
+    if (!resetArmed) return
+    const t = setTimeout(() => setResetArmed(false), 3500)
+    return () => clearTimeout(t)
+  }, [resetArmed])
+
+  const [resetError, setResetError] = useState(false)
+
+  const doReset = async () => {
+    if (!resetArmed) {
+      setResetArmed(true)
+      return
+    }
+    setResetting(true)
+    setResetError(false)
+    // renderer-owned state lives in localStorage (prefs, language, tutorial
+    // flag) — clear it before the main process wipes its own store & relaunches
+    try {
+      localStorage.clear()
+    } catch {
+      /* storage unavailable — the relaunch still restores defaults */
+    }
+    try {
+      if (hasApi) {
+        await window.vr!.resetApp() // relaunches the app; resolves only on failure
+      } else {
+        location.reload() // pure-vite dev fallback
+      }
+      // if resetApp() returns, the main process didn't relaunch (e.g. the DB
+      // file was locked) — surface it so the button isn't stuck "Resetting…"
+      setResetting(false)
+      setResetError(true)
+    } catch {
+      setResetting(false)
+      setResetError(true)
+    }
+  }
 
   return (
     <div
@@ -230,6 +272,36 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
                     りね (rine)
                     <span className="mono" style={{ color: 'var(--accent-hi)' }}>@rinemusic</span>
                   </button>
+                </div>
+
+                {/* danger zone — factory reset (two-step confirm) */}
+                <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                  <div className="col" style={{ gap: 3, marginBottom: 10 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--lab-red)' }}>{tr('set.reset')}</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-mid)', lineHeight: 1.5, maxWidth: 480 }}>{tr('set.resetSub')}</span>
+                  </div>
+                  <button
+                    onClick={doReset}
+                    disabled={resetting}
+                    className="btn"
+                    style={{
+                      height: 32,
+                      border: '1px solid var(--lab-red)',
+                      background: resetArmed ? 'var(--lab-red)' : 'transparent',
+                      color: resetArmed ? 'oklch(0.16 0.02 25)' : 'var(--lab-red)',
+                      fontWeight: resetArmed ? 600 : 500,
+                      cursor: resetting ? 'default' : 'pointer',
+                      opacity: resetting ? 0.6 : 1
+                    }}
+                  >
+                    <Icon name="refresh" className="ic-sm" />
+                    {resetting ? tr('set.resetting') : resetArmed ? tr('set.resetConfirm') : tr('set.resetBtn')}
+                  </button>
+                  {resetError && (
+                    <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--lab-red)', lineHeight: 1.5, maxWidth: 480 }}>
+                      {tr('set.resetError')}
+                    </p>
+                  )}
                 </div>
               </div>
             )}

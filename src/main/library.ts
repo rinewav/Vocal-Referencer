@@ -4,7 +4,7 @@
 import { randomUUID } from 'crypto'
 import { mkdirSync, copyFileSync, rmSync, writeFileSync, unlinkSync, existsSync } from 'fs'
 import { join, extname, basename } from 'path'
-import { getDb, libraryRoot, SongRow, StemRow, StemKind } from './db'
+import { getDb, closeDb, dbPath, libraryRoot, SongRow, StemRow, StemKind } from './db'
 
 export interface SongWithStems extends SongRow {
   stems: StemRow[]
@@ -187,6 +187,23 @@ export function deleteSong(songId: string): void {
   db.prepare('DELETE FROM analysis_cache WHERE song_id = ?').run(songId)
   db.prepare('DELETE FROM songs WHERE id = ?').run(songId)
   rmSync(join(libraryRoot(), songId), { recursive: true, force: true })
+}
+
+/* factory reset: drop every project, stem and cached analysis, plus the copied
+   media under userData/library. Closes the DB first so the file (and its WAL
+   sidecars) can be removed; the engine install is left untouched.
+   The main DB is deleted first and its error is allowed to propagate — if it's
+   locked (e.g. a separation subprocess is mid-write on Windows), the caller
+   aborts the relaunch and the user can retry, rather than restarting on top of
+   a still-populated library. Sidecars and copied media are best-effort. */
+export function resetLibraryData(): void {
+  closeDb()
+  const db = dbPath()
+  rmSync(db, { force: true })
+  for (const f of [db + '-wal', db + '-shm', db + '-journal']) {
+    try { rmSync(f, { force: true }) } catch { /* sidecar — DB is already gone */ }
+  }
+  try { rmSync(libraryRoot(), { recursive: true, force: true }) } catch { /* leftover media — harmless orphans */ }
 }
 
 export function getSong(songId: string): SongRow | undefined {

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'url'
 protocol.registerSchemesAsPrivileged([
   { scheme: 'vr-audio', privileges: { supportFetchAPI: true, stream: true } }
 ])
-import { getSetting, setSetting } from './settings'
+import { getSetting, setSetting, clearSettings } from './settings'
 import { install, health, manifestSummary } from './engine/installer'
 import { enqueueSeparation, Preset } from './engine/sidecar'
 import {
@@ -21,7 +21,8 @@ import {
   setThumbFromFile,
   setThumbFromData,
   cacheGet,
-  cacheSet
+  cacheSet,
+  resetLibraryData
 } from './library'
 import { exportProQ, ExportBand } from './proq'
 import { buildZlEqPreset, saveBuffer, EqBand } from './presets'
@@ -72,6 +73,16 @@ app.whenReady().then(() => {
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: unknown) => setSetting(key, value))
+
+  /* factory reset: wipe the library + all settings, then relaunch into the
+     first-run flow. The engine install is kept so the user isn't forced to
+     re-download ~1.8 GB. The renderer clears its own localStorage first. */
+  ipcMain.handle('app:reset', () => {
+    resetLibraryData()
+    clearSettings()
+    app.relaunch()
+    app.exit(0)
+  })
   ipcMain.handle('engine:health', () => health())
   ipcMain.handle('engine:install', () => install())
   ipcMain.handle('engine:manifest', () => manifestSummary())

@@ -61,21 +61,43 @@ export function Tutorial({ onClose }: { onClose: () => void }) {
     if (idx > 0) setIdx(idx - 1)
   }
 
+  /* effective spotlight target: skip the ring when the element is scrolled
+     off-screen (rect fully above/below the viewport → clamping would invert to
+     a negative size) or too tall to frame (e.g. the empty-library placeholder,
+     which grows to fill the whole view on first run). Falling back to a
+     centered card keeps the backdrop dark and the ring sane. */
+  const onScreen = !!rect && rect.bottom > 0 && rect.top < window.innerHeight
+  const target = rect && onScreen && rect.height <= window.innerHeight * 0.6 ? rect : null
+
   /* tooltip below the target when there's room, else above; centered when
-     the step has no target */
+     there's no framable target */
   let tipStyle: React.CSSProperties
   let ring: React.CSSProperties | null = null
-  if (rect) {
-    const placeBelow = rect.bottom + 180 < window.innerHeight
-    const top = placeBelow ? rect.bottom + 14 : Math.max(54, rect.top - 174)
-    const left = Math.max(14, Math.min(window.innerWidth - TIP_W - 14, rect.left + rect.width / 2 - TIP_W / 2))
+  if (target) {
+    const placeBelow = target.bottom + 180 < window.innerHeight
+    const top = placeBelow ? target.bottom + 14 : Math.max(54, target.top - 174)
+    const left = Math.max(14, Math.min(window.innerWidth - TIP_W - 14, target.left + target.width / 2 - TIP_W / 2))
     tipStyle = { position: 'fixed', top, left, width: TIP_W, zIndex: 421 }
+    /* clamp the ring fully on-screen — titlebar controls sit right at the top
+       edge, so an un-clamped ring (target.top - 6) gets its corners cut off */
+    const M = 4
+    const pad = 6
+    let rl = target.left - pad
+    let rt = target.top - pad
+    let rw = target.width + pad * 2
+    let rh = target.height + pad * 2
+    if (rl < M) { rw -= M - rl; rl = M }
+    if (rt < M) { rh -= M - rt; rt = M }
+    if (rl + rw > window.innerWidth - M) rw = window.innerWidth - M - rl
+    if (rt + rh > window.innerHeight - M) rh = window.innerHeight - M - rt
+    rw = Math.max(0, rw)
+    rh = Math.max(0, rh)
     ring = {
       position: 'fixed',
-      left: rect.left - 6,
-      top: rect.top - 6,
-      width: rect.width + 12,
-      height: rect.height + 12,
+      left: rl,
+      top: rt,
+      width: rw,
+      height: rh,
       borderRadius: 14,
       border: '2px solid var(--accent)',
       boxShadow: '0 0 0 9999px rgba(6,7,9,.55), 0 0 18px var(--accent)',

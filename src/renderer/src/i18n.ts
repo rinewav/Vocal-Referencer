@@ -226,7 +226,22 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
     ja: '基本操作のガイドをもう一度表示します',
     en: 'Show the basic walkthrough again'
   },
-  'set.replayTutorialBtn': { ja: 'もう一度見る', en: 'Replay' }
+  'set.replayTutorialBtn': { ja: 'もう一度見る', en: 'Replay' },
+  'set.reset': { ja: 'アプリを初期化', en: 'Reset app' },
+  'set.resetSub': {
+    ja: 'すべてのプロジェクト・設定・チュートリアル状態を削除し、インストール直後の状態に戻します。ダウンロード済みの解析エンジンは保持されます。この操作は取り消せません。',
+    en: 'Deletes all projects, settings and tutorial state, returning the app to a fresh install. The downloaded analysis engine is kept. This cannot be undone.'
+  },
+  'set.resetBtn': { ja: '全て初期状態に戻す', en: 'Reset everything' },
+  'set.resetConfirm': {
+    ja: 'もう一度押すと実行 — 取り消せません',
+    en: 'Click again to confirm — this cannot be undone'
+  },
+  'set.resetting': { ja: '初期化しています…', en: 'Resetting…' },
+  'set.resetError': {
+    ja: '初期化に失敗しました。処理中のファイルがある場合は、少し待ってからもう一度お試しください。',
+    en: 'Reset failed. If a file is still in use, wait a moment and try again.'
+  }
 }
 
 let current: LangCode = (localStorage.getItem('vr.lang') as LangCode) || 'ja'

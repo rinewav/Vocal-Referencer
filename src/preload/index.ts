@@ -5,6 +5,8 @@ const api = {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value)
   },
+  /* factory reset — wipes the library + settings and relaunches the app */
+  resetApp: () => ipcRenderer.invoke('app:reset') as Promise<void>,
   engine: {
     health: () => ipcRenderer.invoke('engine:health'),
     install: () => ipcRenderer.invoke('engine:install'),
