@@ -53,6 +53,7 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'lib.replaceRef': { ja: 'リファレンス差し替え', en: 'Replace reference' },
   'lib.rename': { ja: '名称変更', en: 'Rename' },
   'lib.thumb': { ja: 'サムネイル画像を設定', en: 'Set thumbnail image' },
+  'lib.dragOut': { ja: 'DAWへドラッグで書き出し', en: 'Drag out to your DAW' },
   'lib.dropHint': {
     ja: '音声 / 動画ファイルをドロップでプロジェクト作成。タイルにドロップで登録',
     en: 'Drop audio / video here to create a project, or onto a tile to attach'
@@ -67,9 +68,9 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'lib.stage.model-download': { ja: 'モデル取得中', en: 'Fetching model' },
   'lib.stage.separating': { ja: '分離中', en: 'Separating' },
   'lib.stage.error': { ja: '失敗', en: 'Failed' },
-  'stem.vocals': { ja: 'ボーカル', en: 'Vocals' },
+  'stem.vocals': { ja: 'ボーカル全体', en: 'All vocals' },
   'stem.instrumental': { ja: 'インスト', en: 'Instrumental' },
-  'stem.lead': { ja: 'リード', en: 'Lead' },
+  'stem.lead': { ja: 'リードのみ', en: 'Lead only' },
   'stem.backing': { ja: 'コーラス', en: 'Backing' },
   'stem.own': { ja: '自分', en: 'Mine' },
   'cmp.pickSong': { ja: 'ライブラリで曲を選んで「比較する」を押してください', en: 'Pick a song in the library and hit Compare' },
@@ -91,7 +92,7 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'cmp.exportProq': { ja: 'Pro-Q 3/4', en: 'Pro-Q 3/4' },
   'cmp.exported': { ja: '保存した', en: 'Saved' },
   'cmp.legendFit': { ja: '書き出されるバンド近似', en: 'Exported band fit' },
-  'cmp.comp': { ja: '等価コンプ設定（推定）', en: 'Equivalent compressor (estimated)' },
+  'cmp.comp': { ja: 'コンプレッサー', en: 'Compressor' },
   'cmp.comp.none': { ja: '追いコンプ不要 — ダイナミクスはリファレンス相当', en: 'No extra compression needed — dynamics already match' },
   'cmp.comp.ratio': { ja: 'レシオ', en: 'Ratio' },
   'cmp.comp.threshold': { ja: 'スレッショルド', en: 'Threshold' },
@@ -120,8 +121,8 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'set.autoSep.full': { ja: 'リード/コーラスまで', en: 'Lead/backing too' },
   'set.tilt': { ja: 'アナライザースロープ (dB/oct)', en: 'Analyzer slope (dB/oct)' },
   'set.tiltSub': {
-    ja: 'スペクトラム表示の傾き補正。4.5 dB/oct が Pro-Q と同じ見た目',
-    en: 'Display tilt of the spectrum. 4.5 dB/oct matches Pro-Q'
+    ja: 'スペクトラム表示の傾き補正',
+    en: 'Display tilt of the spectrum analyzer'
   },
   'set.tiltNote': {
     ja: 'EQ推奨カーブは2音源の差分から作られるためスロープの影響を受けません。スペクトラム比較の見た目だけが変わります。',
@@ -158,12 +159,11 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
     en: 'To reproduce in your DAW, add the auto match gain as makeup after the EQ + compressor to land on the reference loudness.'
   },
   'cmp.monitor': { ja: 'モニター音量', en: 'Monitor volume' },
-  'cmp.copy': { ja: 'コピー', en: 'Copy' },
-  'cmp.copied': { ja: 'コピーした', en: 'Copied' },
   'cmp.exportZlEq': { ja: 'ZL Equalizer', en: 'ZL Equalizer' },
-  'cmp.exportProC2': { ja: 'Pro-C 2', en: 'Pro-C 2' },
-  'cmp.exportZlComp': { ja: 'ZL Compressor', en: 'ZL Compressor' },
   'cmp.export': { ja: '書き出し', en: 'Export' },
+  'cmp.eqAmount': { ja: 'EQ量', en: 'Amount' },
+  'cmp.bands': { ja: 'ポイント詳細', en: 'Band details' },
+  'cmp.remeasuring': { ja: '再計測中…', en: 'Re-measuring…' },
   'cmp.bakedGainNote': {
     ja: '書き出しにラウドネス補正ゲインを含む (設定で変更可)',
     en: 'Exports include the loudness-match gain (change in Settings)'

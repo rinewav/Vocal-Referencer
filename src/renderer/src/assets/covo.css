@@ -12,11 +12,11 @@
   --font-ui: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Inter", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
-  /* ---- 面（Blush） ---- */
-  --bg-canvas: oklch(0.185 0.013 350);
-  --bg-canvas-2: oklch(0.16 0.013 350);
-  --bg-chrome: oklch(0.17 0.014 350);
-  --bg-elevated: oklch(0.23 0.016 350);
+  /* ---- 面（Nightfall がデフォルト） ---- */
+  --bg-canvas: oklch(0.18 0.008 255);
+  --bg-canvas-2: oklch(0.155 0.008 255);
+  --bg-chrome: oklch(0.165 0.009 255);
+  --bg-elevated: oklch(0.225 0.01 255);
 
   /* ---- ガラス（浮遊面専用） ---- */
   --glass-blur: 20px;
@@ -34,7 +34,7 @@
   --text-faint: rgba(255,255,255,0.40);
 
   /* ---- アクセント（テーマの心臓部） ---- */
-  --accent-l: 0.78; --accent-c: 0.165; --accent-h: 350;
+  --accent-l: 0.70; --accent-c: 0.13; --accent-h: 255;
   --accent: oklch(var(--accent-l) var(--accent-c) var(--accent-h));
   --accent-hi: oklch(calc(var(--accent-l) + 0.08) calc(var(--accent-c) - 0.005) var(--accent-h));
   --accent-dim: oklch(var(--accent-l) var(--accent-c) var(--accent-h) / 0.16);

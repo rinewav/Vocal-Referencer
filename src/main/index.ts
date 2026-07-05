@@ -24,7 +24,7 @@ import {
   cacheSet
 } from './library'
 import { exportProQ, ExportBand } from './proq'
-import { buildZlEqPreset, buildZlCompPreset, buildProC2Ffp, saveBuffer, CompParams, EqBand } from './presets'
+import { buildZlEqPreset, saveBuffer, EqBand } from './presets'
 import { libraryRoot } from './db'
 
 function createWindow(): void {
@@ -99,12 +99,6 @@ app.whenReady().then(() => {
   ipcMain.handle('export:zleq', (_e, bands: EqBand[], defaultName: string, outputGainDb: number) =>
     saveBuffer(defaultName, 'VST3 Preset', 'vstpreset', buildZlEqPreset(bands, outputGainDb ?? 0))
   )
-  ipcMain.handle('export:zlcomp', (_e, comp: CompParams, defaultName: string) =>
-    saveBuffer(defaultName, 'VST3 Preset', 'vstpreset', buildZlCompPreset(comp))
-  )
-  ipcMain.handle('export:proc2', (_e, comp: CompParams, defaultName: string) =>
-    saveBuffer(defaultName, 'FabFilter Preset', 'ffp', buildProC2Ffp(comp))
-  )
 
   ipcMain.handle('dialog:pick-audio', async (_e, multi: boolean) => {
     const res = await dialog.showOpenDialog({
@@ -124,14 +118,28 @@ app.whenReady().then(() => {
     return res.canceled ? null : res.filePaths[0]
   })
 
-  /* drag stems out to a DAW / Finder */
-  ipcMain.on('drag:start', (e, paths: string[]) => {
+  /* Drag stems out to a DAW / Finder. Must run synchronously inside the
+     dragstart-triggered IPC, and the icon must be a valid non-zero image —
+     macOS silently no-ops the drag otherwise ("draggingFrame cannot be zero",
+     the bug behind createEmpty()). Same approach as Covo's drag-out. */
+  const DRAG_FALLBACK_ICON =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAxElEQVR4nO3bsQ0CMRQFweuHjqiTrmiCDOkEnM4iGLA32Pz9ie3tcr1tg91/vKF7Zjj4K5CZDz8FscrxHxFWOv4twmrHvyCsePwOIYBFj38iBBBAAHwELQA9QBeAHqALQA/QBaAH6ALQA3QB6AG6APQAXQB6gC4APUAXgB6gC0AP0AWgB+gC0AN0AegBugD0AF0AeoAuAD1AF4AeoAtAD9AF0EPJAAIIYFGEfoz0aapvc32c7OvsEcAsEIf3nQH4N5Chex6Na5kIr/fmLAAAAABJRU5ErkJggg=='
+  ipcMain.on('drag:start', (e, paths: string[], iconDataUrl?: string) => {
     if (!Array.isArray(paths) || paths.length === 0) return
-    e.sender.startDrag({
-      file: paths[0],
-      files: paths,
-      icon: nativeImage.createEmpty()
-    })
+    let icon = iconDataUrl ? nativeImage.createFromDataURL(iconDataUrl) : nativeImage.createEmpty()
+    if (icon.isEmpty()) icon = nativeImage.createFromDataURL(DRAG_FALLBACK_ICON)
+    const sz = icon.getSize()
+    if (!sz || sz.width < 1 || sz.height < 1) icon = nativeImage.createFromDataURL(DRAG_FALLBACK_ICON)
+    try {
+      icon = icon.resize({ width: 64 })
+    } catch {
+      /* keep as-is */
+    }
+    try {
+      e.sender.startDrag({ file: paths[0], files: paths, icon })
+    } catch {
+      /* drag canceled by the OS — nothing to clean up */
+    }
   })
 
   createWindow()

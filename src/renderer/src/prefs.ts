@@ -21,7 +21,7 @@ export interface Prefs {
 }
 
 const DEFAULTS: Prefs = {
-  theme: 'Blush',
+  theme: 'Nightfall',
   tiltDbPerOct: 4.5,
   autoSeparate: 'full',
   bakeGain: true,
@@ -32,7 +32,12 @@ const KEY = 'vr.prefs'
 
 function load(): Prefs {
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }
+    const saved = JSON.parse(localStorage.getItem(KEY) || '{}')
+    // one-time default-theme swap (Blush → Nightfall); explicit picks after
+    // this migration stick because the flag is set
+    if (saved.theme === 'Blush' && !localStorage.getItem('vr.themeMigrated')) delete saved.theme
+    localStorage.setItem('vr.themeMigrated', '1')
+    return { ...DEFAULTS, ...saved }
   } catch {
     return { ...DEFAULTS }
   }

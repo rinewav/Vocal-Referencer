@@ -2,7 +2,7 @@
    vocal, waveform alignment (auto cross-correlation + drag), loudness-matched
    switching, spectrum/EQ/compressor analysis, and a processing preview that
    plays the own vocal through the suggested EQ (FIR convolver) + compressor. */
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Song, StemRef, loadAudioBuffer, audioContext, renderProcessed } from '../lib/audio'
 import {
   averageSpectrum,
@@ -96,16 +96,24 @@ function deserializeAnalysis(json: string): { analysis: Analysis; offsetSec: num
   }
 }
 
+/* default reference = the lead-only stem when it exists */
+const preferLead = (c: StemRef[]): StemRef | undefined => c.find((s) => s.kind === 'lead') ?? c[0]
+
 export function CompareView({ song, reload }: { song: Song; reload: () => void }) {
   useLang()
   const refCandidates = song.stems.filter((s) => s.kind === 'lead' || s.kind === 'vocals')
   const ownCandidates = song.stems.filter((s) => s.kind === 'own')
-  const [refStem, setRefStem] = useState<StemRef | undefined>(refCandidates[0])
+  const [refStem, setRefStem] = useState<StemRef | undefined>(preferLead(refCandidates))
   const [ownStem, setOwnStem] = useState<StemRef | undefined>(ownCandidates[0])
+  /* once the user picks a stem by hand, stop auto-switching */
+  const userPickedRef = useRef(false)
 
-  /* stems can arrive later (registration from this view, separation finishing) */
+  /* stems can arrive later (registration from this view, separation finishing);
+     when the lead split lands, hop onto it unless the user chose explicitly */
   useEffect(() => {
-    if (!refStem && refCandidates.length > 0) setRefStem(refCandidates[0])
+    const lead = refCandidates.find((s) => s.kind === 'lead')
+    if (!refStem && refCandidates.length > 0) setRefStem(preferLead(refCandidates))
+    else if (refStem?.kind === 'vocals' && lead && !userPickedRef.current) setRefStem(lead)
     if (!ownStem && ownCandidates.length > 0) setOwnStem(ownCandidates[0])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [song])
@@ -118,6 +126,59 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
   const [stage, setStage] = useState<Stage>('align')
   const [error, setError] = useState<string | null>(null)
   const { monitorDb, bakeGain } = usePrefs()
+
+  /* match-EQ apply amount (0..1). Values re-measured offline on change. */
+  const [eqAmount, setEqAmount] = useState(1)
+  const [amountLufs, setAmountLufs] = useState<{ lufsEq: number; lufsProc: number; autoGainDb: number } | null>(null)
+  const [remeasuring, setRemeasuring] = useState(false)
+
+  /* what the charts/exports/preview actually use: base analysis scaled by the
+     EQ amount, loudness fields swapped for the re-measured ones when present */
+  const shown = useMemo<Analysis | null>(() => {
+    if (!analysis) return null
+    if (eqAmount === 1) return analysis
+    const eqCurve = new Float32Array(analysis.eqCurve.length)
+    for (let i = 0; i < eqCurve.length; i++) eqCurve[i] = analysis.eqCurve[i] * eqAmount
+    const eqBands = analysis.eqBands.map((b) => ({ ...b, gainDb: b.gainDb * eqAmount }))
+    return { ...analysis, eqCurve, eqBands, ...(amountLufs ?? {}) }
+  }, [analysis, eqAmount, amountLufs])
+
+  /* amount change → re-measure processed loudness offline (debounced) */
+  useEffect(() => {
+    if (!analysis || !ownBuf) return
+    if (eqAmount === 1) {
+      setAmountLufs(null)
+      setRemeasuring(false)
+      return
+    }
+    setRemeasuring(true)
+    let stale = false
+    const t = setTimeout(async () => {
+      try {
+        const curve = new Float32Array(analysis.eqCurve.length)
+        for (let i = 0; i < curve.length; i++) curve[i] = analysis.eqCurve[i] * eqAmount
+        const fir = eqCurveToFir(curve, FIR_TAPS)
+        const c = analysis.comp
+        const compParams =
+          c.ratio !== null && c.thresholdDb !== null
+            ? { thresholdDb: c.thresholdDb, ratio: c.ratio, attackMs: c.attackMs, releaseMs: c.releaseMs }
+            : null
+        const eqOnly = await renderProcessed(ownBuf, fir, null)
+        if (stale) return
+        const lufsEq = integratedLufs(eqOnly)
+        const proc = compParams ? await renderProcessed(ownBuf, fir, compParams) : eqOnly
+        if (stale) return
+        const lufsProc = compParams ? integratedLufs(proc) : lufsEq
+        setAmountLufs({ lufsEq, lufsProc, autoGainDb: analysis.lufsRef - lufsProc })
+      } finally {
+        if (!stale) setRemeasuring(false)
+      }
+    }, 700)
+    return () => {
+      stale = true
+      clearTimeout(t)
+    }
+  }, [eqAmount, analysis, ownBuf])
 
   const [playing, setPlaying] = useState(false)
   const [listenOwn, setListenOwn] = useState(false)
@@ -158,6 +219,8 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
       setStage('align')
       setError(null)
       setAnalysis(null)
+      setEqAmount(1)
+      setAmountLufs(null)
       firRef.current = null
       try {
         const cacheKey = `${refStem.id}|${ownStem.id}`
@@ -267,10 +330,10 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
       let db = 0
       // loudness match: raw own → static LUFS diff; processed own → measured
       // post-chain correction (covers EQ energy shift + comp makeup)
-      if (loudnessMatch && analysis) db += simulated ? analysis.autoGainDb : analysis.lufsRef - analysis.lufsOwn
+      if (loudnessMatch && shown) db += simulated ? shown.autoGainDb : shown.lufsRef - shown.lufsOwn
       return Math.pow(10, db / 20)
     },
-    [loudnessMatch, analysis]
+    [loudnessMatch, shown]
   )
 
   const play = useCallback(
@@ -368,6 +431,14 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
   const toggleSimulate = useCallback(() => {
     setSimulate((v) => !v)
   }, [])
+
+  /* EQ amount change → rebuild the preview FIR (and the live graph if playing) */
+  useEffect(() => {
+    if (!shown) return
+    firRef.current = eqCurveToFir(shown.eqCurve, FIR_TAPS)
+    if (playing && graphRef.current?.simulated) play(playhead ?? 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eqAmount])
   useEffect(() => {
     if (playing && graphRef.current && graphRef.current.simulated !== (simulate && !!analysis)) {
       play(playhead ?? 0)
@@ -469,7 +540,14 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600 }}>{song.title}</span>
         <div className="row gap6" style={{ marginLeft: 'auto' }}>
           {refCandidates.map((s) => (
-            <button key={s.id} className={'chip' + (refStem.id === s.id ? ' on' : '')} onClick={() => setRefStem(s)}>
+            <button
+              key={s.id}
+              className={'chip' + (refStem.id === s.id ? ' on' : '')}
+              onClick={() => {
+                userPickedRef.current = true
+                setRefStem(s)
+              }}
+            >
               {stemLabel(s)}
             </button>
           ))}
@@ -566,11 +644,11 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
         )}
         <label className="row gap8" style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--text-mid)', cursor: 'pointer' }}>
           {tr('cmp.loudnessMatch')}
-          {analysis && (
+          {shown && (
             <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
               {(simulate
-                ? (analysis.autoGainDb >= 0 ? '+' : '') + analysis.autoGainDb.toFixed(1)
-                : (analysis.lufsRef - analysis.lufsOwn >= 0 ? '+' : '') + (analysis.lufsRef - analysis.lufsOwn).toFixed(1))} dB
+                ? (shown.autoGainDb >= 0 ? '+' : '') + shown.autoGainDb.toFixed(1)
+                : (shown.lufsRef - shown.lufsOwn >= 0 ? '+' : '') + (shown.lufsRef - shown.lufsOwn).toFixed(1))} dB
             </span>
           )}
           <button className={'cv-toggle' + (loudnessMatch ? ' on' : '')} onClick={() => setLoudnessMatch((v) => !v)}>
@@ -604,34 +682,37 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
         </div>
       )}
       {error && <span style={{ fontSize: 12.5, color: 'var(--lab-red)' }}>{error}</span>}
-      {analysis && (
+      {shown && (
         <>
           <div className="row gap12" style={{ alignItems: 'stretch', flexWrap: 'wrap', animation: 'view-in .3s ease both' }}>
             <div className="card grow" style={{ padding: 14, minWidth: 380 }}>
-              <SpectrumCompareChart refSpec={analysis.refSpec} ownSpec={analysis.ownSpec} />
+              <SpectrumCompareChart refSpec={shown.refSpec} ownSpec={shown.ownSpec} />
             </div>
             <div className="card grow" style={{ padding: 14, minWidth: 380 }}>
               <EqCurveChart
-                spec={analysis.refSpec}
-                eqCurve={analysis.eqCurve}
-                bands={analysis.eqBands}
+                spec={shown.refSpec}
+                eqCurve={shown.eqCurve}
+                bands={shown.eqBands}
                 exportName={`${song.title} EQ match`}
-                outputGainDb={bakeGain ? analysis.autoGainDb : 0}
+                outputGainDb={bakeGain ? shown.autoGainDb : 0}
+                amount={eqAmount}
+                onAmountChange={setEqAmount}
+                remeasuring={remeasuring}
               />
             </div>
           </div>
           <div style={{ animation: 'view-in .3s ease both', animationDelay: '60ms' }}>
             <LoudnessCard
-              lufsRef={analysis.lufsRef}
-              lufsOwn={analysis.lufsOwn}
-              lufsEq={analysis.lufsEq}
-              lufsProc={analysis.lufsProc}
-              autoGainDb={analysis.autoGainDb}
-              hasComp={analysis.comp.ratio !== null}
+              lufsRef={shown.lufsRef}
+              lufsOwn={shown.lufsOwn}
+              lufsEq={shown.lufsEq}
+              lufsProc={shown.lufsProc}
+              autoGainDb={shown.autoGainDb}
+              hasComp={shown.comp.ratio !== null}
             />
           </div>
           <div style={{ animation: 'view-in .3s ease both', animationDelay: '80ms' }}>
-            <CompCard rec={analysis.comp} dynamics={analysis.dynamics} exportName={`${song.title} comp match`} />
+            <CompCard rec={shown.comp} dynamics={shown.dynamics} />
           </div>
         </>
       )}

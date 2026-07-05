@@ -132,7 +132,10 @@ export function EqCurveChart({
   eqCurve,
   bands,
   exportName,
-  outputGainDb = 0
+  outputGainDb = 0,
+  amount,
+  onAmountChange,
+  remeasuring = false
 }: {
   spec: Spectrum
   eqCurve: Float32Array
@@ -140,10 +143,24 @@ export function EqCurveChart({
   exportName: string
   /* loudness-match gain baked into exported presets (0 = off) */
   outputGainDb?: number
+  /* match-EQ apply amount, 0..1 */
+  amount: number
+  onAmountChange: (v: number) => void
+  remeasuring?: boolean
 }) {
   useLang()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [saved, setSaved] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [bandsOpen, setBandsOpen] = useState(false)
+
+  /* close the export menu on any outside click */
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = () => setMenuOpen(false)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [menuOpen])
   /* screen-space positions of the band markers, rebuilt on each draw */
   const markersRef = useRef<{ x: number; y: number; idx: number }[]>([])
   const [hover, setHover] = useState<number | null>(null)
@@ -241,36 +258,80 @@ export function EqCurveChart({
     setTimeout(() => setSaved(null), 2500)
   }
   const doExport = async (kind: 'proq' | 'zleq') => {
+    setMenuOpen(false)
     const exp = kind === 'proq' ? window.vr!.exportProQ : window.vr!.exportZlEq
     const name = kind === 'proq' ? `${exportName}.ffp` : `${exportName}.vstpreset`
     const path = await exp(bands, name, outputGainDb)
     if (path) flash(kind)
   }
-  const doCopy = async () => {
-    const lines = bands.map(
-      (b, i) => `${i + 1}: ${formatFreq(b.freqHz)}  ${(b.gainDb >= 0 ? '+' : '') + b.gainDb.toFixed(1)} dB  Q ${b.q.toFixed(2)}`
-    )
-    if (outputGainDb !== 0) lines.push(`Output gain: ${(outputGainDb >= 0 ? '+' : '') + outputGainDb.toFixed(1)} dB`)
-    await navigator.clipboard.writeText(lines.join('\n'))
-    flash('copy')
-  }
 
   const hovered = hover !== null ? bands[hover] : null
-  const exportBtn = (key: string, label: string, onClick: () => void) => (
-    <button key={key} className="btn ghost" style={{ height: 26, fontSize: 12 }} onClick={onClick} disabled={bands.length === 0}>
-      <Icon name={key === 'copy' ? 'copy' : 'download'} className="ic-sm" />
-      {saved === key ? tr(key === 'copy' ? 'cmp.copied' : 'cmp.exported') : label}
-    </button>
-  )
 
   return (
     <div className="col gap8 grow">
       <div className="row gap12" style={{ flexWrap: 'wrap' }}>
         <Legend items={[[GREEN, tr('cmp.eqCurve')], ['rgba(255,255,255,0.55)', tr('cmp.legendFit')]]} />
-        <div className="row gap4" style={{ marginLeft: 'auto' }} title={outputGainDb !== 0 ? tr('cmp.bakedGainNote') : undefined}>
-          {exportBtn('proq', tr('cmp.exportProq'), () => doExport('proq'))}
-          {exportBtn('zleq', tr('cmp.exportZlEq'), () => doExport('zleq'))}
-          {exportBtn('copy', tr('cmp.copy'), doCopy)}
+        <label className="row gap6" style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--text-mid)' }}>
+          {tr('cmp.eqAmount')}
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(amount * 100)}
+            onChange={(e) => onAmountChange(+e.target.value / 100)}
+            style={{ width: 90, accentColor: 'var(--accent)' }}
+          />
+          <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', minWidth: 34, textAlign: 'right' }}>
+            {remeasuring ? '…' : `${Math.round(amount * 100)}%`}
+          </span>
+        </label>
+        <div style={{ position: 'relative' }} onMouseDown={(e) => e.stopPropagation()}>
+          <button
+            className="btn ghost"
+            style={{ height: 26, fontSize: 12 }}
+            onClick={() => setMenuOpen((v) => !v)}
+            disabled={bands.length === 0}
+            title={outputGainDb !== 0 ? tr('cmp.bakedGainNote') : undefined}
+          >
+            <Icon name="download" className="ic-sm" />
+            {saved ? tr('cmp.exported') : tr('cmp.export')}
+          </button>
+          {menuOpen && (
+            <div
+              className="glass col"
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: 30,
+                zIndex: 20,
+                minWidth: 150,
+                padding: 4,
+                borderRadius: 10,
+                boxShadow: 'var(--shadow-pop)',
+                animation: 'pop-in .14s ease'
+              }}
+            >
+              {(
+                [
+                  ['proq', tr('cmp.exportProq')],
+                  ['zleq', tr('cmp.exportZlEq')]
+                ] as const
+              ).map(([kind, label]) => (
+                <button
+                  key={kind}
+                  className="row gap8"
+                  style={{ padding: '8px 10px', borderRadius: 7, fontSize: 12.5, textAlign: 'left' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,.07)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  onClick={() => doExport(kind)}
+                >
+                  <Icon name="download" className="ic-sm" style={{ color: 'var(--text-lo)' }} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       <div style={{ position: 'relative' }}>
@@ -323,29 +384,42 @@ export function EqCurveChart({
         )}
       </div>
       {bands.length > 0 && (
-        <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-          {bands.map((b, i) => (
-            <span
-              key={i}
-              className="chip mono"
-              onMouseEnter={() => setHover(i)}
-              onMouseLeave={() => setHover(null)}
-              style={{
-                height: 24,
-                fontSize: 11,
-                cursor: 'default',
-                borderColor: hover === i ? 'var(--accent-line)' : undefined,
-                color: hover === i ? 'var(--text-hi)' : undefined
-              }}
-            >
-              <span style={{ color: 'var(--lab-green)', fontWeight: 600 }}>{i + 1}</span>
-              &nbsp;{formatFreq(b.freqHz)}&nbsp;
-              <span style={{ color: b.gainDb >= 0 ? 'var(--lab-green)' : 'var(--lab-pink)' }}>
-                {(b.gainDb >= 0 ? '+' : '') + b.gainDb.toFixed(1)}
-              </span>
-              &nbsp;Q{b.q.toFixed(1)}
-            </span>
-          ))}
+        <div className="col gap6">
+          <button
+            className="row gap6"
+            style={{ fontSize: 11.5, color: 'var(--text-lo)', alignSelf: 'flex-start', padding: '2px 0' }}
+            onClick={() => setBandsOpen((v) => !v)}
+          >
+            <span style={{ display: 'inline-block', transform: bandsOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▸</span>
+            {tr('cmp.bands')}
+            <span className="mono" style={{ color: 'var(--text-faint)' }}>({bands.length})</span>
+          </button>
+          {bandsOpen && (
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+              {bands.map((b, i) => (
+                <span
+                  key={i}
+                  className="chip mono"
+                  onMouseEnter={() => setHover(i)}
+                  onMouseLeave={() => setHover(null)}
+                  style={{
+                    height: 24,
+                    fontSize: 11,
+                    cursor: 'default',
+                    borderColor: hover === i ? 'var(--accent-line)' : undefined,
+                    color: hover === i ? 'var(--text-hi)' : undefined
+                  }}
+                >
+                  <span style={{ color: 'var(--lab-green)', fontWeight: 600 }}>{i + 1}</span>
+                  &nbsp;{formatFreq(b.freqHz)}&nbsp;
+                  <span style={{ color: b.gainDb >= 0 ? 'var(--lab-green)' : 'var(--lab-pink)' }}>
+                    {(b.gainDb >= 0 ? '+' : '') + b.gainDb.toFixed(1)}
+                  </span>
+                  &nbsp;Q{b.q.toFixed(1)}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -360,7 +434,13 @@ export interface DynamicsData {
   offsetSec: number
 }
 
-export function DynamicsChart({ data, rec }: { data: DynamicsData; rec: CompRecommendation }) {
+export interface DynamicsShow {
+  ref: boolean
+  own: boolean
+  comped: boolean
+}
+
+export function DynamicsChart({ data, rec, show }: { data: DynamicsData; rec: CompRecommendation; show: DynamicsShow }) {
   useLang()
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -371,7 +451,7 @@ export function DynamicsChart({ data, rec }: { data: DynamicsData; rec: CompReco
 
     const { frameSec, refDb, ownDb, offsetSec } = data
     const comped =
-      rec.ratio !== null && rec.thresholdDb !== null
+      show.comped && rec.ratio !== null && rec.thresholdDb !== null
         ? simulateComp(ownDb, frameSec, rec.thresholdDb, rec.ratio, rec.attackMs, rec.releaseMs)
         : null
 
@@ -420,8 +500,8 @@ export function DynamicsChart({ data, rec }: { data: DynamicsData; rec: CompReco
       }
       ctx.stroke()
     }
-    drawEnv(refDb, 0, REF_COLOR)
-    drawEnv(ownDb, offsetSec, OWN_COLOR)
+    if (show.ref) drawEnv(refDb, 0, REF_COLOR)
+    if (show.own) drawEnv(ownDb, offsetSec, OWN_COLOR)
     if (comped) drawEnv(comped, offsetSec, GREEN, 1.8)
 
     // threshold marker
@@ -434,20 +514,9 @@ export function DynamicsChart({ data, rec }: { data: DynamicsData; rec: CompReco
       ctx.stroke()
       ctx.setLineDash([])
     }
-  }, [data, rec])
+  }, [data, rec, show])
 
-  const legend: [string, string][] = [
-    [REF_COLOR, tr('cmp.legendRef')],
-    [OWN_COLOR, tr('cmp.legendOwn')]
-  ]
-  if (rec.ratio !== null) legend.push([GREEN, tr('cmp.legendComp')])
-
-  return (
-    <div className="col gap8">
-      <Legend items={legend} />
-      <canvas ref={canvasRef} style={{ width: '100%', height: 160, display: 'block' }} />
-    </div>
-  )
+  return <canvas ref={canvasRef} style={{ width: '100%', height: 160, display: 'block' }} />
 }
 
 export function LoudnessCard({
@@ -491,62 +560,19 @@ export function LoudnessCard({
   )
 }
 
-export function CompCard({
-  rec,
-  dynamics,
-  exportName
-}: {
-  rec: CompRecommendation
-  dynamics: DynamicsData | null
-  exportName: string
-}) {
+export function CompCard({ rec, dynamics }: { rec: CompRecommendation; dynamics: DynamicsData | null }) {
   useLang()
   const fmt = (v: number) => v.toFixed(1)
-  const [saved, setSaved] = useState<string | null>(null)
-  const flash = (key: string) => {
-    setSaved(key)
-    setTimeout(() => setSaved(null), 2500)
-  }
-  const compParams =
-    rec.ratio !== null && rec.thresholdDb !== null
-      ? { thresholdDb: rec.thresholdDb, ratio: rec.ratio, attackMs: rec.attackMs, releaseMs: rec.releaseMs }
-      : null
-  const doExport = async (kind: 'proc2' | 'zlcomp') => {
-    if (!compParams) return
-    const exp = kind === 'proc2' ? window.vr!.exportProC2 : window.vr!.exportZlComp
-    const path = await exp(compParams, `${exportName}.${kind === 'proc2' ? 'ffp' : 'vstpreset'}`)
-    if (path) flash(kind)
-  }
-  const doCopy = async () => {
-    if (!compParams) return
-    await navigator.clipboard.writeText(
-      [
-        `Ratio: ${compParams.ratio.toFixed(1)}:1`,
-        `Threshold: ${compParams.thresholdDb.toFixed(1)} dB`,
-        `Attack: ${compParams.attackMs} ms`,
-        `Release: ${compParams.releaseMs} ms`
-      ].join('\n')
-    )
-    flash('copy')
-  }
-  const exportBtn = (key: string, label: string, onClick: () => void) => (
-    <button key={key} className="btn ghost" style={{ height: 26, fontSize: 12 }} onClick={onClick}>
-      <Icon name={key === 'copy' ? 'copy' : 'download'} className="ic-sm" />
-      {saved === key ? tr(key === 'copy' ? 'cmp.copied' : 'cmp.exported') : label}
-    </button>
-  )
+  /* graph curve visibility — the suggested-comp overlay is opt-in */
+  const [show, setShow] = useState<DynamicsShow>({ ref: true, own: true, comped: false })
+  const toggles: [keyof DynamicsShow, string, string][] = [
+    ['ref', REF_COLOR, tr('cmp.legendRef')],
+    ['own', OWN_COLOR, tr('cmp.legendOwn')]
+  ]
+  if (rec.ratio !== null) toggles.push(['comped', GREEN, tr('cmp.legendComp')])
   return (
     <div className="card col gap10" style={{ padding: 14 }}>
-      <div className="row gap12" style={{ flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>{tr('cmp.comp')}</span>
-        {compParams && (
-          <div className="row gap4" style={{ marginLeft: 'auto' }}>
-            {exportBtn('proc2', tr('cmp.exportProC2'), () => doExport('proc2'))}
-            {exportBtn('zlcomp', tr('cmp.exportZlComp'), () => doExport('zlcomp'))}
-            {exportBtn('copy', tr('cmp.copy'), doCopy)}
-          </div>
-        )}
-      </div>
+      <span style={{ fontSize: 13, fontWeight: 600 }}>{tr('cmp.comp')}</span>
       {rec.ratio === null ? (
         <span style={{ fontSize: 12.5, color: 'var(--lab-green)' }}>{tr('cmp.comp.none')}</span>
       ) : (
@@ -566,7 +592,24 @@ export function CompCard({
           ))}
         </div>
       )}
-      {dynamics && <DynamicsChart data={dynamics} rec={rec} />}
+      {dynamics && (
+        <div className="col gap8">
+          <div className="row gap6" style={{ flexWrap: 'wrap' }}>
+            {toggles.map(([key, color, label]) => (
+              <button
+                key={key}
+                className={'chip' + (show[key] ? ' on' : '')}
+                style={{ height: 24, fontSize: 11.5 }}
+                onClick={() => setShow((s) => ({ ...s, [key]: !s[key] }))}
+              >
+                <span className="dot" style={{ background: color, opacity: show[key] ? 1 : 0.35 }} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <DynamicsChart data={dynamics} rec={rec} show={show} />
+        </div>
+      )}
       <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
         {tr('cmp.comp.basis')}: ref {rec.refDrDb.toFixed(1)} dB / own {rec.ownDrDb.toFixed(1)} dB · crest ref{' '}
         {rec.refCrestDb.toFixed(1)} / own {rec.ownCrestDb.toFixed(1)} dB

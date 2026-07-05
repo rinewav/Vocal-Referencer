@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Song, StemRef, SeparateProgress, loadAudioBuffer, computePeaks, audioUrl } from '../lib/audio'
 import { finishRefRegistration, registerReference, maybeChainKaraoke } from '../lib/refimport'
+import { dragOut } from '../lib/dragout'
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
 
@@ -136,7 +137,7 @@ function StemChip({ stem }: { stem: StemRef }) {
       onDragStart={(e) => {
         e.preventDefault()
         e.stopPropagation()
-        window.vr!.dragStart([stem.path])
+        dragOut([stem.path])
       }}
     >
       <Icon name="wave" className="ic-sm" style={{ width: 11, height: 11 }} />
@@ -334,15 +335,47 @@ export function LibraryView({
                 title={song.src_path || undefined}
                 style={{
                   height: 96,
+                  position: 'relative',
                   cursor: hasRef ? 'grab' : 'pointer',
                   background:
                     'radial-gradient(420px 200px at 80% -30%, oklch(0.30 0.06 var(--accent-h) / 0.35), transparent 70%), var(--bg-canvas-2)'
                 }}
                 onDragStart={(e) => {
                   e.preventDefault()
-                  if (hasRef) window.vr!.dragStart([song.src_path])
+                  if (hasRef) dragOut([song.src_path])
                 }}
               >
+                {/* visible drag-out handle (Covo board pattern) */}
+                {hasRef && (
+                  <div
+                    draggable
+                    title={tr('lib.dragOut')}
+                    onClick={(e) => e.stopPropagation()}
+                    onDragStart={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      dragOut([song.src_path])
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 6,
+                      zIndex: 2,
+                      width: 26,
+                      height: 24,
+                      borderRadius: 7,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'var(--accent)',
+                      color: 'oklch(0.16 0.02 255)',
+                      boxShadow: '0 1px 5px rgba(0,0,0,.5)',
+                      cursor: 'grab'
+                    }}
+                  >
+                    <Icon name="download" style={{ width: 14, height: 14 }} />
+                  </div>
+                )}
                 {song.thumb ? (
                   <img
                     src={audioUrl(song.thumb)}
