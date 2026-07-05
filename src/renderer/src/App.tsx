@@ -14,7 +14,7 @@ const hasApi = typeof window !== 'undefined' && !!window.vr
 type View = 'library' | 'compare'
 
 export function App() {
-  useLang()
+  const lang = useLang()
   const [firstRun, setFirstRun] = useState<boolean | null>(null) // null = loading
   const [view, setView] = useState<View>('library')
   const [songs, setSongs] = useState<Song[]>([])
@@ -62,6 +62,12 @@ export function App() {
       setTutorial(true)
     }
   }, [firstRun])
+
+  /* keep Discord Rich Presence in sync with the current view + UI language
+     (no-op in the main process when presence is off or Discord isn't running) */
+  useEffect(() => {
+    if (hasApi) void window.vr!.discord.setPresence({ view, lang })
+  }, [view, lang])
 
   if (firstRun === null) return null
   if (firstRun) return <FirstRun onDone={() => setFirstRun(false)} />

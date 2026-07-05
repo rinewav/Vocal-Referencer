@@ -7,6 +7,11 @@ const api = {
   },
   /* factory reset — wipes the library + settings and relaunches the app */
   resetApp: () => ipcRenderer.invoke('app:reset') as Promise<void>,
+  /* Discord Rich Presence */
+  discord: {
+    enable: (on: boolean) => ipcRenderer.invoke('discord:enable', on) as Promise<{ ok: boolean; error?: string }>,
+    setPresence: (state: { view?: string; lang?: string }) => ipcRenderer.invoke('discord:presence', state) as Promise<void>
+  },
   engine: {
     health: () => ipcRenderer.invoke('engine:health'),
     install: () => ipcRenderer.invoke('engine:install'),

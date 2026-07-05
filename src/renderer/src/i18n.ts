@@ -105,7 +105,7 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'cmp.exported': { ja: '保存した', en: 'Saved' },
   'cmp.legendFit': { ja: '書き出されるバンド近似', en: 'Exported band fit' },
   'cmp.comp': { ja: 'コンプレッサー', en: 'Compressor' },
-  'cmp.comp.none': { ja: '追いコンプ不要 — ダイナミクスはリファレンス相当', en: 'No extra compression needed — dynamics already match' },
+  'cmp.comp.none': { ja: 'コンプレッサー処理は不要 — ダイナミクスはリファレンス相当', en: 'No extra compression needed — dynamics already match' },
   'cmp.comp.ratio': { ja: 'レシオ', en: 'Ratio' },
   'cmp.comp.threshold': { ja: 'スレッショルド', en: 'Threshold' },
   'cmp.comp.attack': { ja: 'アタック', en: 'Attack' },
@@ -131,6 +131,16 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'set.autoSep.off': { ja: 'なし', en: 'Off' },
   'set.autoSep.vocal': { ja: 'ボーカルのみ', en: 'Vocals only' },
   'set.autoSep.full': { ja: 'リード/コーラスまで', en: 'Lead/backing too' },
+  'set.discord': { ja: 'Discord表示 (Rich Presence)', en: 'Discord Rich Presence' },
+  'set.discordSub': {
+    ja: '起動中のアプリをDiscordのプロフィールに表示します',
+    en: 'Show the app on your Discord profile while it runs'
+  },
+  'set.discordClientId': { ja: 'Discord アプリID (Client ID)', en: 'Discord application ID (Client ID)' },
+  'set.discordClientIdSub': {
+    ja: 'Discord Developer Portal で作成したアプリのIDを入力すると表示が有効になります',
+    en: 'Enter the ID of an app you created in the Discord Developer Portal to enable the presence'
+  },
   'set.tilt': { ja: 'アナライザースロープ (dB/oct)', en: 'Analyzer slope (dB/oct)' },
   'set.tiltSub': {
     ja: 'スペクトラム表示の傾き補正',

@@ -27,6 +27,7 @@ import {
 import { exportProQ, ExportBand } from './proq'
 import { buildZlEqPreset, saveBuffer, EqBand } from './presets'
 import { libraryRoot } from './db'
+import { enableDiscord, setPresence, setDiscordIdle } from './discord'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -46,6 +47,13 @@ function createWindow(): void {
   })
 
   win.on('ready-to-show', () => win.show())
+
+  // Discord presence → "Idle…" while the window is minimized or hidden.
+  win.on('minimize', () => setDiscordIdle(true))
+  win.on('hide', () => setDiscordIdle(true))
+  win.on('restore', () => setDiscordIdle(false))
+  win.on('show', () => setDiscordIdle(false))
+  win.on('focus', () => setDiscordIdle(false))
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
@@ -73,6 +81,13 @@ app.whenReady().then(() => {
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: unknown) => setSetting(key, value))
+
+  /* Discord Rich Presence: the toggle persists the choice and (dis)connects. */
+  ipcMain.handle('discord:enable', (_e, on: boolean) => {
+    setSetting('discordRpc', on)
+    return enableDiscord(on)
+  })
+  ipcMain.handle('discord:presence', (_e, state: { view?: string; lang?: string }) => setPresence(state))
 
   /* factory reset: wipe the library + all settings, then relaunch into the
      first-run flow. The engine install is kept so the user isn't forced to
@@ -154,6 +169,10 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+
+  // Connect Discord Rich Presence when the user opted in (needs a client id).
+  // Fails silently if Discord isn't running; retries on its own once it's up.
+  if (getSetting('discordRpc') === true) void enableDiscord(true)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

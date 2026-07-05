@@ -62,10 +62,31 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
   const [version, setVersion] = useState('')
   const [resetArmed, setResetArmed] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [discordOn, setDiscordOn] = useState(false)
+  const [discordClientId, setDiscordClientId] = useState('')
 
   useEffect(() => {
-    if (hasApi) window.vr!.appVersion().then(setVersion).catch(() => {})
+    if (!hasApi) return
+    window.vr!.appVersion().then(setVersion).catch(() => {})
+    window.vr!.settings.get('discordRpc').then((v) => setDiscordOn(v === true)).catch(() => {})
+    window.vr!.settings
+      .get('discordClientId')
+      .then((v) => setDiscordClientId(typeof v === 'string' ? v : ''))
+      .catch(() => {})
   }, [])
+
+  /* Discord presence: the main process persists the flag + (dis)connects. */
+  const toggleDiscord = () => {
+    const next = !discordOn
+    setDiscordOn(next)
+    if (hasApi) void window.vr!.discord.enable(next)
+  }
+  const saveClientId = (v: string) => {
+    setDiscordClientId(v)
+    if (!hasApi) return
+    void window.vr!.settings.set('discordClientId', v)
+    if (discordOn) void window.vr!.discord.enable(true) // reconnect with the new id
+  }
 
   /* Esc closes (unless an inner element handled it) */
   useEffect(() => {
@@ -212,6 +233,22 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
                     onChange={(v) => PrefsStore.set({ autoSeparate: v })}
                   />
                 </Row>
+                <Row title={tr('set.discord')} desc={tr('set.discordSub')}>
+                  <button className={'cv-toggle' + (discordOn ? ' on' : '')} onClick={toggleDiscord}>
+                    <span className="knob" />
+                  </button>
+                </Row>
+                {discordOn && (
+                  <Row title={tr('set.discordClientId')} desc={tr('set.discordClientIdSub')}>
+                    <input
+                      value={discordClientId}
+                      onChange={(e) => saveClientId(e.target.value.trim())}
+                      placeholder="1234567890…"
+                      spellCheck={false}
+                      style={{ width: 210, height: 32, padding: '0 10px', borderRadius: 8, background: 'rgba(0,0,0,.25)', border: '1px solid var(--glass-border)', color: 'var(--text-hi)', fontSize: 12.5 }}
+                    />
+                  </Row>
+                )}
               </div>
             )}
 
