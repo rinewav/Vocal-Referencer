@@ -56,6 +56,15 @@ const api = {
   exportZlEq: (bands: { freqHz: number; gainDb: number; q: number }[], defaultName: string, outputGainDb?: number) =>
     ipcRenderer.invoke('export:zleq', bands, defaultName, outputGainDb ?? 0) as Promise<string | null>,
   appVersion: () => ipcRenderer.invoke('app:version') as Promise<string>,
+  /* notify-only update check against the GitHub latest release (never installs) */
+  checkUpdate: () =>
+    ipcRenderer.invoke('app:check-update') as Promise<{
+      current: string
+      latest?: string
+      url?: string
+      updateAvailable: boolean
+    }>,
+  openDownload: (url?: string) => ipcRenderer.invoke('app:open-download', url) as Promise<void>,
   pickAudio: (multi: boolean) => ipcRenderer.invoke('dialog:pick-audio', multi) as Promise<string[] | null>,
   dragStart: (paths: string[], iconDataUrl?: string) => ipcRenderer.send('drag:start', paths, iconDataUrl),
   pathForFile: (file: File) => webUtils.getPathForFile(file)

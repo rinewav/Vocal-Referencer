@@ -29,6 +29,24 @@ import { buildZlEqPreset, saveBuffer, EqBand } from './presets'
 import { libraryRoot } from './db'
 import { enableDiscord, setPresence, setDiscordIdle } from './discord'
 
+// Update-check feed: the GitHub "latest release" API for the project repo. The
+// app NEVER auto-downloads or runs anything — it only compares versions and
+// points the user at the release page. Fail-silent when offline / no releases
+// yet (so a fresh repo never shows a false alarm). Mirrors Covo's approach.
+const UPDATE_FEED = 'https://api.github.com/repos/rinewav/Vocal-Referencer/releases/latest'
+// Where the "download" button sends the user: the latest GitHub release page
+// (they pick the macOS/Windows asset there). Also the allowlisted host+path.
+const RELEASES_PAGE = 'https://github.com/rinewav/Vocal-Referencer/releases/latest'
+
+function isNewerVersion(latest: string, current: string): boolean {
+  const a = latest.split('.').map((n) => parseInt(n, 10) || 0)
+  const b = current.split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0)
+  }
+  return false
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1240,
@@ -79,6 +97,56 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('app:version', () => app.getVersion())
+
+  /* Update CHECK only (no auto-install): fetch the GitHub latest-release feed,
+     compare its tag to the running version, and report whether a newer build
+     exists. Fail-silent on any error (offline / no releases / rate-limited). */
+  ipcMain.handle('app:check-update', async () => {
+    const current = app.getVersion()
+    try {
+      // GitHub's API requires a User-Agent; without it the request 403s.
+      const res = await net.fetch(UPDATE_FEED, {
+        cache: 'no-store',
+        headers: { 'User-Agent': 'VocalReferencer', Accept: 'application/vnd.github+json' }
+      })
+      if (!res.ok) return { current, updateAvailable: false }
+      const data = (await res.json()) as { tag_name?: unknown; html_url?: unknown }
+      // release tags look like "v1.2.3" → strip the leading v for comparison
+      const latest = typeof data?.tag_name === 'string' ? data.tag_name.trim().replace(/^v/i, '') : ''
+      if (!/^\d+\.\d+\.\d+/.test(latest)) return { current, updateAvailable: false }
+      const url =
+        typeof data?.html_url === 'string' &&
+        /^https:\/\/github\.com\/rinewav\/Vocal-Referencer\//i.test(data.html_url)
+          ? data.html_url
+          : RELEASES_PAGE
+      return { current, latest, url, updateAvailable: isNewerVersion(latest, current) }
+    } catch {
+      // offline / no releases yet — treat as up to date (no false alarms)
+      return { current, updateAvailable: false }
+    }
+  })
+
+  /* Open the release page in the user's browser. Restricted to the project's
+     GitHub repo so a tampered feed can't redirect the button to another origin. */
+  ipcMain.handle('app:open-download', (_e, url?: unknown) => {
+    let target = RELEASES_PAGE
+    try {
+      if (typeof url === 'string') {
+        const u = new URL(url)
+        if (
+          u.protocol === 'https:' &&
+          u.hostname === 'github.com' &&
+          /^\/rinewav\/Vocal-Referencer(\/|$)/i.test(u.pathname)
+        ) {
+          target = url
+        }
+      }
+    } catch {
+      // malformed url — fall back to the releases page
+    }
+    void shell.openExternal(target)
+  })
+
   ipcMain.handle('settings:get', (_e, key: string) => getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: unknown) => setSetting(key, value))
 

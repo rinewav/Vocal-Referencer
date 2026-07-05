@@ -21,6 +21,9 @@ export function App() {
   const [compareSong, setCompareSong] = useState<Song | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tutorial, setTutorial] = useState(false)
+  // notify-only update banner (null = hidden); set when a newer GitHub release
+  // is found on launch. Never auto-installs — just links to the release page.
+  const [update, setUpdate] = useState<{ latest?: string; url?: string } | null>(null)
 
   const startTutorial = useCallback(() => {
     setSettingsOpen(false)
@@ -69,6 +72,23 @@ export function App() {
     if (hasApi) void window.vr!.discord.setPresence({ view, lang })
   }, [view, lang])
 
+  /* notify-only update check on launch: ask main to compare the GitHub latest
+     release to the running build. Fail-silent — no banner unless a newer
+     version is found (offline / no releases / errors are swallowed). */
+  useEffect(() => {
+    if (!hasApi) return
+    let alive = true
+    window
+      .vr!.checkUpdate()
+      .then((u) => {
+        if (alive && u && u.updateAvailable) setUpdate({ latest: u.latest, url: u.url })
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
   if (firstRun === null) return null
   if (firstRun) return <FirstRun onDone={() => setFirstRun(false)} />
 
@@ -106,6 +126,42 @@ export function App() {
           </button>
         </div>
       </div>
+
+      {/* notify-only update bar — opens the release page, never auto-installs */}
+      {update && (
+        <div
+          className="row gap10 no-drag"
+          style={{
+            justifyContent: 'center',
+            padding: '8px 14px',
+            background: 'var(--accent-dim)',
+            borderBottom: '1px solid var(--accent-line)',
+            animation: 'view-in .16s ease both'
+          }}
+        >
+          <span style={{ fontSize: 12.5, color: 'var(--text-hi)' }}>
+            {tr('up.available')}
+            {update.latest ? ' · v' + update.latest : ''}
+          </span>
+          <button
+            onClick={() => {
+              void window.vr!.openDownload(update.url)
+            }}
+            className="cv-btn primary"
+            style={{ height: 26, fontSize: 12 }}
+          >
+            {tr('up.download')}
+          </button>
+          <button
+            onClick={() => setUpdate(null)}
+            className="cv-toolbtn"
+            title={tr('up.dismiss')}
+            style={{ width: 24, height: 24 }}
+          >
+            <Icon name="x" className="ic-sm" />
+          </button>
+        </div>
+      )}
 
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onReplayTutorial={startTutorial} />}
       {tutorial && <Tutorial onClose={closeTutorial} />}

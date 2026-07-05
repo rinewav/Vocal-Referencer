@@ -251,7 +251,10 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'set.resetError': {
     ja: '初期化に失敗しました。処理中のファイルがある場合は、少し待ってからもう一度お試しください。',
     en: 'Reset failed. If a file is still in use, wait a moment and try again.'
-  }
+  },
+  'up.available': { ja: '新しいバージョンがあります', en: 'A new version is available' },
+  'up.download': { ja: 'ダウンロード', en: 'Download' },
+  'up.dismiss': { ja: '閉じる', en: 'Dismiss' }
 }
 
 let current: LangCode = (localStorage.getItem('vr.lang') as LangCode) || 'ja'
