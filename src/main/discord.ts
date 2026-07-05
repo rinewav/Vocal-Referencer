@@ -7,9 +7,9 @@ import { randomUUID } from 'crypto'
 import { getSetting } from './settings'
 
 // Discord application ("client") id from the Developer Portal. It decides the
-// app name + artwork shown on the profile. Per-user override via the
-// `discordClientId` setting; presence is disabled while this is empty.
-const DEFAULT_CLIENT_ID = ''
+// app name + artwork shown on the profile. Ships with Vocal Referencer's own
+// app id; per-user override via the `discordClientId` setting.
+const DEFAULT_CLIENT_ID = '1523213928660729876'
 
 const OP_HANDSHAKE = 0
 const OP_FRAME = 1
@@ -60,6 +60,7 @@ function activity(): Record<string, unknown> {
     state: 'Vocal Referencer',
     timestamps: { start: startedAt },
     assets: { large_image: 'app', large_text: 'Vocal Referencer' },
+    buttons: [{ label: 'Get Vocal Referencer', url: 'https://rinedayo.booth.pm/' }],
     instance: false
   }
 }

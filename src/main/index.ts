@@ -170,9 +170,10 @@ app.whenReady().then(() => {
 
   createWindow()
 
-  // Connect Discord Rich Presence when the user opted in (needs a client id).
-  // Fails silently if Discord isn't running; retries on its own once it's up.
-  if (getSetting('discordRpc') === true) void enableDiscord(true)
+  // Connect Discord Rich Presence unless the user turned it off (on by default,
+  // ships with a client id). Fails silently if Discord isn't running; retries
+  // on its own once it's up.
+  if (getSetting('discordRpc') !== false) void enableDiscord(true)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

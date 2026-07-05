@@ -9,6 +9,9 @@ import { usePrefs, PrefsStore, AutoSeparate } from '../prefs'
 
 const hasApi = typeof window !== 'undefined' && !!window.vr
 
+// Vocal Referencer's own Discord app id — mirrors DEFAULT_CLIENT_ID in main/discord.ts
+const DEFAULT_DISCORD_CLIENT_ID = '1523213928660729876'
+
 function Row({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
   return (
     <div className="row" style={{ justifyContent: 'space-between', gap: 18, padding: '13px 0', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
@@ -62,16 +65,16 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
   const [version, setVersion] = useState('')
   const [resetArmed, setResetArmed] = useState(false)
   const [resetting, setResetting] = useState(false)
-  const [discordOn, setDiscordOn] = useState(false)
-  const [discordClientId, setDiscordClientId] = useState('')
+  const [discordOn, setDiscordOn] = useState(true) // on by default
+  const [discordClientId, setDiscordClientId] = useState(DEFAULT_DISCORD_CLIENT_ID)
 
   useEffect(() => {
     if (!hasApi) return
     window.vr!.appVersion().then(setVersion).catch(() => {})
-    window.vr!.settings.get('discordRpc').then((v) => setDiscordOn(v === true)).catch(() => {})
+    window.vr!.settings.get('discordRpc').then((v) => setDiscordOn(v !== false)).catch(() => {})
     window.vr!.settings
       .get('discordClientId')
-      .then((v) => setDiscordClientId(typeof v === 'string' ? v : ''))
+      .then((v) => setDiscordClientId(typeof v === 'string' && v ? v : DEFAULT_DISCORD_CLIENT_ID))
       .catch(() => {})
   }, [])
 
