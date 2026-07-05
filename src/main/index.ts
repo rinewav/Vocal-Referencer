@@ -22,7 +22,8 @@ import {
   setThumbFromData,
   cacheGet,
   cacheSet,
-  resetLibraryData
+  resetLibraryData,
+  removeOwnStem
 } from './library'
 import { exportProQ, ExportBand } from './proq'
 import { buildZlEqPreset, saveBuffer, EqBand } from './presets'
@@ -55,7 +56,9 @@ function createWindow(): void {
     minHeight: 640,
     show: false,
     backgroundColor: '#14161c', // Nightfall canvas approximation until CSS paints
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // mac: hidden-inset traffic lights / others: frameless + in-app window controls
+    frame: process.platform === 'darwin',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -97,6 +100,21 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('app:version', () => app.getVersion())
+
+  /* frameless-window controls (Windows/Linux — mac keeps native traffic lights) */
+  ipcMain.on('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize())
+  ipcMain.on('win:maximize-toggle', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win) return
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
+  })
+  ipcMain.on('win:close', (e) => BrowserWindow.fromWebContents(e.sender)?.close())
+
+  /* reveal a library file in Finder / Explorer — restricted to the library dir */
+  ipcMain.handle('shell:reveal', (_e, p: unknown) => {
+    if (typeof p === 'string' && p.startsWith(libraryRoot())) shell.showItemInFolder(p)
+  })
 
   /* Update CHECK only (no auto-install): fetch the GitHub latest-release feed,
      compare its tag to the running version, and report whether a newer build
@@ -182,6 +200,7 @@ app.whenReady().then(() => {
   ipcMain.handle('library:add-own', (_e, songId: string, filePath: string) => addOwnStem(songId, filePath))
   ipcMain.handle('library:rename', (_e, songId: string, title: string) => renameSong(songId, title))
   ipcMain.handle('library:delete', (_e, songId: string) => deleteSong(songId))
+  ipcMain.handle('library:remove-own-stem', (_e, stemId: string) => removeOwnStem(stemId))
   ipcMain.handle('cache:get', (_e, key: string) => cacheGet(key))
   ipcMain.handle('cache:set', (_e, key: string, songId: string, data: string) => cacheSet(key, songId, data))
 

@@ -35,3 +35,16 @@ body,
 .drag-strip .no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* キーボードショートカット表示チップ */
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--text-mid);
+  white-space: nowrap;
+}

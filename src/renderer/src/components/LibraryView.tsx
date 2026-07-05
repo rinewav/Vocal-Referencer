@@ -3,17 +3,23 @@
    Clicking anywhere on a tile opens it in the compare view. Thumbnails come
    from cover art / video frames / a manual image, falling back to a mini
    waveform. Reference registration auto-runs stem separation per prefs. */
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Song, StemRef, SeparateProgress, loadAudioBuffer, computePeaks, audioUrl } from '../lib/audio'
-import { finishRefRegistration, registerReference, maybeChainKaraoke, SilentAudioError } from '../lib/refimport'
+import { finishRefRegistration, registerReference, SilentAudioError } from '../lib/refimport'
 import { dragOut } from '../lib/dragout'
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
 
 const hasApi = typeof window !== 'undefined' && !!window.vr
 
-/* mini waveform thumbnail, decoded lazily per tile */
-function WaveThumb({ path }: { path: string }) {
+/* mini waveform thumbnail. Peaks are computed once at a fixed resolution and
+   cached in the analysis-cache DB (keyed by file path, owned by the song so
+   project deletion cleans them up) — decoding every song on every library
+   visit was the slow part, not the drawing. */
+const PEAKS_W = 280
+const peaksKey = (path: string) => `peaks|1|${path}`
+
+function WaveThumb({ path, songId }: { path: string; songId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [failed, setFailed] = useState(false)
 
@@ -21,7 +27,29 @@ function WaveThumb({ path }: { path: string }) {
     let canceled = false
     ;(async () => {
       try {
-        const buf = await loadAudioBuffer(path)
+        let min: number[] | null = null
+        let max: number[] | null = null
+        const cached = hasApi ? await window.vr!.cache.get(peaksKey(path)) : null
+        if (cached) {
+          try {
+            const d = JSON.parse(cached)
+            if (Array.isArray(d.min) && Array.isArray(d.max) && d.min.length === PEAKS_W) {
+              min = d.min
+              max = d.max
+            }
+          } catch {
+            /* corrupt cache row — recompute below */
+          }
+        }
+        if (!min || !max) {
+          const buf = await loadAudioBuffer(path)
+          if (canceled) return
+          const peaks = computePeaks(buf, PEAKS_W)
+          const r = (v: number) => Math.round(v * 100) / 100
+          min = Array.from(peaks.min, r)
+          max = Array.from(peaks.max, r)
+          if (hasApi) void window.vr!.cache.set(peaksKey(path), songId, JSON.stringify({ min, max }))
+        }
         if (canceled) return
         const canvas = canvasRef.current
         if (!canvas) return
@@ -32,12 +60,12 @@ function WaveThumb({ path }: { path: string }) {
         canvas.height = H * dpr
         const ctx = canvas.getContext('2d')!
         ctx.scale(dpr, dpr)
-        const { min, max } = computePeaks(buf, W)
         const mid = H / 2
         ctx.fillStyle = 'oklch(0.70 0.13 255 / 0.75)' // accent-ish blue on the tile
         for (let x = 0; x < W; x++) {
-          const yLo = mid + min[x] * (mid - 3)
-          const yHi = mid + max[x] * (mid - 3)
+          const i = Math.min(PEAKS_W - 1, Math.floor((x / W) * PEAKS_W))
+          const yLo = mid + min[i] * (mid - 3)
+          const yHi = mid + max[i] * (mid - 3)
           ctx.fillRect(x, yHi, 1, Math.max(1, yLo - yHi))
         }
       } catch {
@@ -47,7 +75,7 @@ function WaveThumb({ path }: { path: string }) {
     return () => {
       canceled = true
     }
-  }, [path])
+  }, [path, songId])
 
   if (failed) {
     return (
@@ -62,7 +90,7 @@ function WaveThumb({ path }: { path: string }) {
 /* thumbnail image loaded over the vr-audio protocol via fetch → blob URL —
    <img src="vr-audio://…"> is blocked as a subresource (non-standard scheme),
    which showed up as a broken-image icon. Falls back to the waveform. */
-function ThumbImage({ thumb, fallbackPath }: { thumb: string; fallbackPath: string | null }) {
+function ThumbImage({ thumb, fallbackPath, songId }: { thumb: string; fallbackPath: string | null; songId: string }) {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -89,7 +117,7 @@ function ThumbImage({ thumb, fallbackPath }: { thumb: string; fallbackPath: stri
     }
   }, [thumb])
 
-  if (failed && fallbackPath) return <WaveThumb path={fallbackPath} />
+  if (failed && fallbackPath) return <WaveThumb path={fallbackPath} songId={songId} />
   if (failed || !url) {
     return (
       <div className="row" style={{ height: '100%', justifyContent: 'center' }}>
@@ -158,12 +186,12 @@ function TitleEditor({
 }
 
 /* icon-only tile action with hover title */
-function TileButton({ icon, title, danger, onClick }: { icon: string; title: string; danger?: boolean; onClick: () => void }) {
+function TileButton({ icon, title, onClick }: { icon: string; title: string; onClick: () => void }) {
   return (
     <button
       className="cv-toolbtn"
       title={title}
-      style={{ width: 26, height: 26, ...(danger ? { color: 'var(--lab-red)' } : {}) }}
+      style={{ width: 26, height: 26 }}
       onClick={(e) => {
         e.stopPropagation()
         onClick()
@@ -176,8 +204,9 @@ function TileButton({ icon, title, danger, onClick }: { icon: string; title: str
 
 /* one draggable row inside the "drag into your DAW" stem box. Single, uniform
    look (wave icon + name + drag-out hint) — no chip pill, no per-kind color, so
-   the box reads as a calm list rather than a scatter of buttons. */
-function StemRow({ stem }: { stem: StemRef }) {
+   the box reads as a calm list rather than a scatter of buttons. Own takes get
+   a two-step delete (arm → confirm) so extra bounces can be pruned. */
+function StemRow({ stem, onDelete, deleteArmed }: { stem: StemRef; onDelete?: () => void; deleteArmed?: boolean }) {
   useLang()
   return (
     <div
@@ -198,6 +227,19 @@ function StemRow({ stem }: { stem: StemRef }) {
         {stem.label ? ` · ${stem.label}` : ''}
       </span>
       <Icon name="download" className="ic-sm" style={{ marginLeft: 'auto', color: 'var(--text-faint)', flex: 'none' }} />
+      {onDelete && (
+        <button
+          className="cv-toolbtn"
+          title={deleteArmed ? tr('lib.removeTakeConfirm') : tr('lib.removeTake')}
+          style={{ width: 22, height: 22, flex: 'none', color: deleteArmed ? 'var(--lab-red)' : 'var(--text-faint)' }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+        >
+          <Icon name="x" style={{ width: 12, height: 12 }} />
+        </button>
+      )}
     </div>
   )
 }
@@ -248,9 +290,19 @@ export function LibraryView({
 }) {
   useLang()
   const [progress, setProgress] = useState<Record<string, SeparateProgress>>({})
-  const [tileDropId, setTileDropId] = useState<string | null>(null)
+  /* drag-over target + which half of the tile (top = reference, bottom = own) */
+  const [tileDrop, setTileDrop] = useState<{ id: string; zone: 'ref' | 'own' } | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [deleteArmId, setDeleteArmId] = useState<string | null>(null)
+  /* two-step delete arm for own-take rows */
+  const [stemArmId, setStemArmId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [sortByName, setSortByName] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number; songId: string } | null>(null)
+  /* soft delete: the tile disappears immediately, the actual removal runs
+     after a grace period so the toast's undo can cancel it */
+  const [pendingDeletes, setPendingDeletes] = useState<string[]>([])
+  const [deleteToast, setDeleteToast] = useState<{ songId: string; title: string } | null>(null)
+  const deleteTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   /* per-project import errors (e.g. video with an undecodable audio track) */
   const [importErrors, setImportErrors] = useState<Record<string, string>>({})
 
@@ -265,23 +317,75 @@ export function LibraryView({
       return next
     })
 
+  /* progress bars only — reload / karaoke chaining / notifications run at the
+     App level so they also fire while the compare view is open */
   useEffect(() => {
     if (!hasApi) return
     return window.vr!.separate.onProgress((p: unknown) => {
       const prog = p as SeparateProgress
       setProgress((prev) => ({ ...prev, [prog.songId]: prog }))
-      if (prog.stage === 'done') {
-        reload()
-        void maybeChainKaraoke(prog.songId, prog.preset)
-      }
     })
-  }, [reload])
+  }, [])
 
   useEffect(() => {
-    if (!deleteArmId) return
-    const t = setTimeout(() => setDeleteArmId(null), 2500)
+    if (!stemArmId) return
+    const t = setTimeout(() => setStemArmId(null), 2500)
     return () => clearTimeout(t)
-  }, [deleteArmId])
+  }, [stemArmId])
+
+  /* close the tile context menu on any outside interaction */
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('blur', close)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', close)
+    }
+  }, [menu])
+
+  const scheduleDelete = (song: Song) => {
+    if (deleteTimers.current[song.id]) return
+    setPendingDeletes((p) => [...p, song.id])
+    setDeleteToast({ songId: song.id, title: song.title })
+    deleteTimers.current[song.id] = setTimeout(() => {
+      delete deleteTimers.current[song.id]
+      void window.vr!.library.remove(song.id).then(reload)
+      setPendingDeletes((p) => p.filter((id) => id !== song.id))
+      setDeleteToast((t) => (t?.songId === song.id ? null : t))
+    }, 5000)
+  }
+
+  const undoDelete = (songId: string) => {
+    const t = deleteTimers.current[songId]
+    if (t) {
+      clearTimeout(t)
+      delete deleteTimers.current[songId]
+    }
+    setPendingDeletes((p) => p.filter((id) => id !== songId))
+    setDeleteToast((cur) => (cur?.songId === songId ? null : cur))
+  }
+
+  /* leaving the view ends the grace period — flush pending deletes for real */
+  useEffect(
+    () => () => {
+      const ids = Object.keys(deleteTimers.current)
+      for (const id of ids) {
+        clearTimeout(deleteTimers.current[id])
+        void window.vr?.library.remove(id)
+      }
+      deleteTimers.current = {}
+      if (ids.length) reload()
+    },
+    // reload is a stable useCallback in App — this runs once on unmount
+    [reload]
+  )
 
   const addFiles = async (paths: string[]) => {
     for (const p of paths) {
@@ -342,6 +446,20 @@ export function LibraryView({
     }
   }
 
+  const pickAndAdd = async () => {
+    const picked = await window.vr!.pickAudio(true)
+    if (picked?.length) await addFiles(picked)
+  }
+
+  /* grid contents: pending deletes hidden, then search filter, then sort */
+  const shownSongs = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    let list = songs.filter((s) => !pendingDeletes.includes(s.id))
+    if (q) list = list.filter((s) => s.title.toLowerCase().includes(q))
+    if (sortByName) list = [...list].sort((a, b) => a.title.localeCompare(b.title, 'ja'))
+    return list
+  }, [songs, pendingDeletes, query, sortByName])
+
   return (
     <div
       className="col gap12 grow"
@@ -353,19 +471,42 @@ export function LibraryView({
         if (paths.length) addFiles(paths)
       }}
     >
-      <div className="row gap10" style={{ animation: 'view-in .3s ease both' }}>
+      <div className="row gap10" style={{ flexWrap: 'wrap', animation: 'view-in .3s ease both' }}>
         <button className="btn primary" data-tut="new-project" onClick={newProject}>
           <Icon name="plus" className="ic-sm" />
           {tr('lib.newProject')}
         </button>
         <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{tr('lib.dropHint')}</span>
+        {songs.length > 0 && (
+          <span className="row gap6" style={{ marginLeft: 'auto' }}>
+            <input
+              className="cv-input"
+              placeholder={tr('lib.search')}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ height: 30, width: 190, fontSize: 12.5 }}
+            />
+            <button className={'chip' + (!sortByName ? ' on' : '')} onClick={() => setSortByName(false)}>
+              {tr('lib.sortNew')}
+            </button>
+            <button className={'chip' + (sortByName ? ' on' : '')} onClick={() => setSortByName(true)}>
+              {tr('lib.sortName')}
+            </button>
+          </span>
+        )}
       </div>
 
       {songs.length === 0 && (
-        <div className="ph grow" data-tut="tiles" style={{ borderRadius: 'var(--r-lg)', minHeight: 220, animation: 'view-in .3s ease both', animationDelay: '60ms' }}>
+        <div
+          className="ph grow"
+          data-tut="tiles"
+          onClick={pickAndAdd}
+          style={{ borderRadius: 'var(--r-lg)', minHeight: 220, animation: 'view-in .3s ease both', animationDelay: '60ms', cursor: 'pointer' }}
+        >
           <div className="col gap12" style={{ alignItems: 'center' }}>
             <Icon name="note" style={{ width: 28, height: 28, color: 'var(--text-lo)' }} />
             <span className="ph-cap">{tr('app.emptyLibrary')}</span>
+            <span className="ph-cap" style={{ color: 'var(--text-lo)' }}>{tr('lib.emptyAction')}</span>
           </div>
         </div>
       )}
@@ -374,7 +515,7 @@ export function LibraryView({
         data-tut={songs.length > 0 ? 'tiles' : undefined}
         style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}
       >
-        {songs.map((song, i) => {
+        {shownSongs.map((song, i) => {
           const prog = progress[song.id]
           const busy = prog && (prog.stage === 'separating' || prog.stage === 'model-download')
           const hasVocals = song.stems.some((s) => s.kind === 'vocals')
@@ -389,26 +530,70 @@ export function LibraryView({
                 animation: 'view-in .3s ease both',
                 animationDelay: `${60 + Math.min(i, 8) * 55}ms`,
                 cursor: 'pointer',
-                outline: tileDropId === song.id ? '2px solid var(--accent-line)' : 'none'
+                position: 'relative'
               }}
               onClick={() => onOpen(song)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setMenu({ x: e.clientX, y: e.clientY, songId: song.id })
+              }}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes('Files')) {
                   e.preventDefault()
                   e.stopPropagation()
-                  setTileDropId(song.id)
+                  // 上半分 = リファレンス、下半分 = 自分のボーカル
+                  const r = e.currentTarget.getBoundingClientRect()
+                  const zone = e.clientY < r.top + r.height / 2 ? 'ref' : 'own'
+                  setTileDrop((cur) => (cur?.id === song.id && cur.zone === zone ? cur : { id: song.id, zone }))
                 }
               }}
-              onDragLeave={() => setTileDropId((cur) => (cur === song.id ? null : cur))}
+              onDragLeave={() => setTileDrop((cur) => (cur?.id === song.id ? null : cur))}
               onDrop={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                setTileDropId(null)
+                const zone = tileDrop?.id === song.id ? tileDrop.zone : hasRef ? 'own' : 'ref'
+                setTileDrop(null)
                 const paths = dropPaths(e)
-                // 空プロジェクトへの最初のドロップ = リファレンス、以後 = 自分のボーカル
-                if (paths[0]) hasRef ? addOwn(song.id, paths[0]) : setRef(song.id, paths[0])
+                if (paths[0]) {
+                  if (zone === 'ref') setRef(song.id, paths[0])
+                  else addOwn(song.id, paths[0])
+                }
               }}
             >
+              {/* drop-zone overlay: shows where the file will land before release */}
+              {tileDrop?.id === song.id && (
+                <div
+                  className="col"
+                  style={{ position: 'absolute', inset: 0, zIndex: 6, pointerEvents: 'none', animation: 'fade-in .1s' }}
+                >
+                  {(['ref', 'own'] as const).map((z) => (
+                    <div
+                      key={z}
+                      className="row grow"
+                      style={{
+                        justifyContent: 'center',
+                        background: tileDrop.zone === z ? 'var(--accent-dim)' : 'rgba(6,7,9,.55)',
+                        outline: tileDrop.zone === z ? '2px solid var(--accent-line)' : 'none',
+                        outlineOffset: -2
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: tileDrop.zone === z ? 'var(--accent-hi)' : 'var(--text-mid)',
+                          background: 'rgba(6,7,9,.6)',
+                          padding: '4px 10px',
+                          borderRadius: 7
+                        }}
+                      >
+                        {z === 'ref' ? (hasRef ? tr('lib.replaceRef') : tr('lib.dropRefZone')) : tr('lib.dropOwnZone')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {/* thumbnail: image (cover art / video frame / manual) or waveform */}
               <div
                 draggable={hasRef}
@@ -457,9 +642,9 @@ export function LibraryView({
                   </div>
                 )}
                 {song.thumb ? (
-                  <ThumbImage thumb={song.thumb} fallbackPath={hasRef ? song.src_path : null} />
+                  <ThumbImage thumb={song.thumb} fallbackPath={hasRef ? song.src_path : null} songId={song.id} />
                 ) : hasRef ? (
-                  <WaveThumb path={song.src_path} />
+                  <WaveThumb path={song.src_path} songId={song.id} />
                 ) : (
                   <div className="row" style={{ height: '100%', justifyContent: 'center' }}>
                     <Icon name="plus" style={{ width: 22, height: 22, color: 'var(--text-faint)' }} />
@@ -479,18 +664,7 @@ export function LibraryView({
                   </div>
                   <TileButton icon="pencil" title={tr('lib.rename')} onClick={() => setEditingId(song.id)} />
                   <TileButton icon="image" title={tr('lib.thumb')} onClick={() => pickThumb(song.id)} />
-                  <TileButton
-                    icon="x"
-                    title={deleteArmId === song.id ? tr('lib.deleteConfirm') : tr('lib.delete')}
-                    danger={deleteArmId === song.id}
-                    onClick={async () => {
-                      if (deleteArmId === song.id) {
-                        await window.vr!.library.remove(song.id)
-                        setDeleteArmId(null)
-                        reload()
-                      } else setDeleteArmId(song.id)
-                    }}
-                  />
+                  <TileButton icon="x" title={tr('lib.delete')} onClick={() => scheduleDelete(song)} />
                 </div>
 
                 <SourceRow
@@ -542,7 +716,21 @@ export function LibraryView({
                       {tr('lib.stemsBox')}
                     </div>
                     {song.stems.map((s) => (
-                      <StemRow key={s.id} stem={s} />
+                      <StemRow
+                        key={s.id}
+                        stem={s}
+                        deleteArmed={stemArmId === s.id}
+                        onDelete={
+                          s.kind === 'own'
+                            ? () => {
+                                if (stemArmId === s.id) {
+                                  setStemArmId(null)
+                                  void window.vr!.library.removeOwnStem(s.id).then(reload)
+                                } else setStemArmId(s.id)
+                              }
+                            : undefined
+                        }
+                      />
                     ))}
                   </div>
                 )}
@@ -594,6 +782,70 @@ export function LibraryView({
 
       {songs.length > 0 && (
         <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{tr('lib.stemDragHint')}</span>
+      )}
+
+      {/* tile context menu */}
+      {menu &&
+        (() => {
+          const song = songs.find((s) => s.id === menu.songId)
+          if (!song) return null
+          const W = 210
+          const x = Math.min(menu.x, window.innerWidth - W - 8)
+          const y = Math.min(menu.y, window.innerHeight - 200)
+          return (
+            <div
+              className="glass cv-menu"
+              style={{ position: 'fixed', left: x, top: y, zIndex: 300, width: W, boxShadow: 'var(--shadow-pop)', animation: 'pop-in .12s ease' }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <button className="cv-menu-item" onClick={() => { setMenu(null); onOpen(song) }}>
+                <Icon name="compare" className="ic-sm" />
+                {tr('lib.open')}
+              </button>
+              <button className="cv-menu-item" onClick={() => { setMenu(null); setEditingId(song.id) }}>
+                <Icon name="pencil" className="ic-sm" />
+                {tr('lib.rename')}
+              </button>
+              <button className="cv-menu-item" onClick={() => { setMenu(null); void pickThumb(song.id) }}>
+                <Icon name="image" className="ic-sm" />
+                {tr('lib.thumb')}
+              </button>
+              {!!song.src_path && (
+                <button className="cv-menu-item" onClick={() => { setMenu(null); void window.vr!.reveal(song.src_path) }}>
+                  <Icon name="folder" className="ic-sm" />
+                  {tr('lib.reveal')}
+                </button>
+              )}
+              <div className="cv-menu-sep" />
+              <button
+                className="cv-menu-item"
+                style={{ color: 'var(--lab-red)' }}
+                onClick={() => { setMenu(null); scheduleDelete(song) }}
+              >
+                <Icon name="x" className="ic-sm" />
+                {tr('lib.delete')}
+              </button>
+            </div>
+          )
+        })()}
+
+      {/* undo toast for the pending delete */}
+      {deleteToast && (
+        <div className="cv-toast-wrap">
+          <div className="glass cv-toast">
+            <span style={{ color: 'var(--text-mid)', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {deleteToast.title} — {tr('lib.deleted')}
+            </span>
+            <button
+              className="btn ghost"
+              style={{ height: 26, fontSize: 12.5, color: 'var(--accent-hi)' }}
+              onClick={() => undoDelete(deleteToast.songId)}
+            >
+              {tr('lib.undo')}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

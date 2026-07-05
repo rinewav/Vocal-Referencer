@@ -54,6 +54,7 @@ const NAV = [
   { id: 'appearance', icon: 'palette', k: 'set.nav.appearance' },
   { id: 'general', icon: 'settings', k: 'set.nav.general' },
   { id: 'analysis', icon: 'sliders', k: 'set.nav.analysis' },
+  { id: 'engine', icon: 'bolt', k: 'set.nav.engine' },
   { id: 'export', icon: 'download', k: 'set.nav.export' },
   { id: 'about', icon: 'info', k: 'set.nav.about' }
 ] as const
@@ -109,6 +110,57 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
   }, [resetArmed])
 
   const [resetError, setResetError] = useState(false)
+
+  /* engine section: health check on open, re-install path for users who hit
+     "set up later" on first run (the FirstRun gate never shows again) */
+  const [engineOk, setEngineOk] = useState<boolean | null>(null)
+  const [installing, setInstalling] = useState(false)
+  const [engineProg, setEngineProg] = useState(0)
+  const [engineErr, setEngineErr] = useState(false)
+
+  useEffect(() => {
+    if (sec !== 'engine') return
+    if (!hasApi) {
+      setEngineOk(false)
+      return
+    }
+    setEngineOk(null)
+    window
+      .vr!.engine.health()
+      .then((h) => setEngineOk(!!h && typeof h === 'object' && (h as { ok?: boolean }).ok === true))
+      .catch(() => setEngineOk(false))
+  }, [sec])
+
+  const runInstall = async () => {
+    if (!hasApi || installing) return
+    setInstalling(true)
+    setEngineErr(false)
+    setEngineProg(0)
+    // aggregate %, weighted equally per part (same scheme as FirstRun)
+    const parts: Record<string, { done: boolean; received: number; total: number }> = {}
+    const off = window.vr!.engine.onInstall((p: unknown) => {
+      const q = p as { name?: string; received?: number; total?: number; done?: boolean }
+      if (!q || typeof q.name !== 'string') return
+      parts[q.name] = { done: !!q.done, received: q.received ?? 0, total: q.total ?? 0 }
+      const rows = Object.values(parts)
+      const frac =
+        rows.reduce((s, r) => s + (r.done ? 1 : r.total > 0 ? Math.min(1, r.received / r.total) : 0), 0) / rows.length
+      setEngineProg((prev) => Math.max(prev, Math.min(100, Math.round(frac * 100))))
+    })
+    try {
+      const report = await window.vr!.engine.install()
+      const ok = !!report && typeof report === 'object' && (report as { ok?: boolean }).ok === true
+      if (ok) {
+        setEngineProg(100)
+        setEngineOk(true)
+      } else setEngineErr(true)
+    } catch {
+      setEngineErr(true)
+    } finally {
+      off()
+      setInstalling(false)
+    }
+  }
 
   const doReset = async () => {
     if (!resetArmed) {
@@ -266,6 +318,53 @@ export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; o
                   />
                 </Row>
                 <p style={{ margin: '10px 2px 0', fontSize: 11.5, color: 'var(--text-faint)', lineHeight: 1.55 }}>{tr('set.tiltNote')}</p>
+              </div>
+            )}
+
+            {sec === 'engine' && (
+              <div>
+                <H>{tr('set.nav.engine')}</H>
+                <Row title={tr('set.engineStatus')} desc={tr('set.engineStatusSub')}>
+                  <span className="row gap8" style={{ fontSize: 12.5 }}>
+                    <span
+                      className="dot"
+                      style={{
+                        background:
+                          engineOk === null ? 'var(--text-faint)' : engineOk ? 'var(--lab-green)' : 'var(--lab-amber)'
+                      }}
+                    />
+                    <span style={{ color: 'var(--text-mid)' }}>
+                      {engineOk === null ? tr('set.engineChecking') : engineOk ? tr('set.engineOk') : tr('set.engineMissing')}
+                    </span>
+                  </span>
+                </Row>
+                {engineOk === false && (
+                  <div className="col" style={{ gap: 10, padding: '13px 0' }}>
+                    <p style={{ margin: 0, fontSize: 12, color: 'var(--text-mid)', lineHeight: 1.6, maxWidth: 460 }}>
+                      {tr('set.engineNote')}
+                    </p>
+                    {installing && (
+                      <div className="col" style={{ gap: 6 }}>
+                        <div style={{ height: 6, borderRadius: 4, background: 'rgba(255,255,255,.1)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: engineProg + '%', background: 'var(--accent)', transition: 'width .25s' }} />
+                        </div>
+                        <span className="mono" style={{ fontSize: 11, color: 'var(--text-lo)' }}>{engineProg}%</span>
+                      </div>
+                    )}
+                    {engineErr && (
+                      <p style={{ margin: 0, fontSize: 12, color: 'var(--lab-amber)', lineHeight: 1.5 }}>{tr('fr.incomplete')}</p>
+                    )}
+                    <button
+                      className="btn primary"
+                      style={{ alignSelf: 'flex-start', opacity: installing ? 0.6 : 1 }}
+                      disabled={installing}
+                      onClick={runInstall}
+                    >
+                      <Icon name="download" className="ic-sm" />
+                      {installing ? tr('fr.statusFetching') + '…' : tr('set.engineInstall')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

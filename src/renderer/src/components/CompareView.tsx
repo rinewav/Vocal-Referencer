@@ -101,7 +101,22 @@ function deserializeAnalysis(json: string): { analysis: Analysis; offsetSec: num
 /* default reference = the lead-only stem when it exists */
 const preferLead = (c: StemRef[]): StemRef | undefined => c.find((s) => s.kind === 'lead') ?? c[0]
 
-export function CompareView({ song, reload }: { song: Song; reload: () => void }) {
+const fmtTime = (s: number) => {
+  const m = Math.floor(s / 60)
+  const sec = Math.floor(s % 60)
+  return `${m}:${String(sec).padStart(2, '0')}`
+}
+
+export function CompareView({
+  song,
+  reload,
+  modalOpen = false
+}: {
+  song: Song
+  reload: () => void
+  /* an overlay (settings / tutorial) is on top — keyboard shortcuts pause */
+  modalOpen?: boolean
+}) {
   useLang()
   const refCandidates = song.stems.filter((s) => s.kind === 'lead' || s.kind === 'vocals')
   const ownCandidates = song.stems.filter((s) => s.kind === 'own')
@@ -127,6 +142,9 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
   const [loading, setLoading] = useState(false)
   const [stage, setStage] = useState<Stage>('align')
   const [error, setError] = useState<string | null>(null)
+  /* bumped by the retry button — re-runs the load+analyze effect */
+  const [retryTick, setRetryTick] = useState(0)
+  const [helpOpen, setHelpOpen] = useState(false)
   const { monitorDb, bakeGain } = usePrefs()
 
   /* match-EQ apply amount (0..1). Values re-measured offline on change. */
@@ -304,12 +322,24 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
     return () => {
       canceled = true
     }
-  }, [refStem?.id, ownStem?.id])
+  }, [refStem?.id, ownStem?.id, retryTick])
 
   /* keep the dynamics chart's offset in sync with manual nudges */
   useEffect(() => {
     setAnalysis((a) => (a && a.dynamics.offsetSec !== offsetSec ? { ...a, dynamics: { ...a.dynamics, offsetSec } } : a))
   }, [offsetSec])
+
+  /* manual offset nudges survive revisits: refresh the cached analysis row
+     (debounced — nudge buttons and waveform drags fire in bursts) */
+  useEffect(() => {
+    if (!analysis || loading || !refStem || !ownStem || !window.vr) return
+    const key = `${refStem.id}|${ownStem.id}`
+    const t = setTimeout(() => {
+      void window.vr!.cache.set(key, song.id, serializeAnalysis(analysis, offsetSec))
+    }, 600)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offsetSec, analysis, loading, refStem?.id, ownStem?.id, song.id])
 
   /* ---------- playback ---------- */
   const stop = useCallback(() => {
@@ -452,21 +482,52 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
 
   useEffect(() => stop, [stop, refStem?.id, ownStem?.id])
 
-  /* keyboard: Space = play/stop, Tab = A/B */
+  /* keyboard: Space = play/stop · Tab / 1 / 2 = A/B · ←/→ = seek ±5 s ·
+     L = clear loop · ? = shortcut help. Never steals keys from text inputs
+     (range sliders are fine — shortcuts win there) or while a modal is open. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === 'Space') {
+      const el = e.target as HTMLElement
+      if (el.tagName === 'TEXTAREA' || el.isContentEditable) return
+      if (el.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'range') return
+      if (modalOpen) return
+      if (helpOpen) {
+        if (e.code === 'Escape' || e.key === '?') {
+          e.preventDefault()
+          setHelpOpen(false)
+        }
+        return
+      }
+      if (e.key === '?') {
+        e.preventDefault()
+        setHelpOpen(true)
+      } else if (e.code === 'Space') {
         e.preventDefault()
         if (playing) stop()
         else play(playhead ?? loop?.a ?? 0)
       } else if (e.code === 'Tab') {
         e.preventDefault()
         setListen(!listenOwn)
+      } else if (e.code === 'Digit1') {
+        e.preventDefault()
+        setListen(false)
+      } else if (e.code === 'Digit2') {
+        e.preventDefault()
+        setListen(true)
+      } else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+        e.preventDefault()
+        const total = Math.max(refBuf?.duration ?? 1, (ownBuf?.duration ?? 1) + Math.max(0, offsetSec))
+        const pos = Math.max(0, Math.min(total, (playhead ?? 0) + (e.code === 'ArrowRight' ? 5 : -5)))
+        if (playing) play(pos)
+        else setPlayhead(pos)
+      } else if (e.code === 'KeyL') {
+        e.preventDefault()
+        setLoop(null)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [playing, playhead, listenOwn, play, stop, setListen, loop])
+  }, [playing, playhead, listenOwn, play, stop, setListen, loop, modalOpen, helpOpen, refBuf, ownBuf, offsetSec])
 
   if (!refStem || !ownStem) {
     const hasRefSource = !!song.src_path
@@ -576,6 +637,7 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
           <div className="row gap8" style={{ fontSize: 11.5, color: 'var(--text-mid)' }}>
             <span className="dot" style={{ background: 'var(--lab-blue)' }} />
             {tr('cmp.refTrack')}
+            <span style={{ marginLeft: 'auto', color: 'var(--text-faint)' }}>{tr('cmp.loopHint')}</span>
           </div>
           <Waveform
             buffer={refBuf}
@@ -624,16 +686,36 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
 
       {/* transport */}
       <div className="row gap10" style={{ flexWrap: 'wrap', animation: 'view-in .3s ease both', animationDelay: '120ms' }}>
-        <button className="btn primary" style={{ width: 110 }} onClick={() => (playing ? stop() : play(playhead ?? 0))}>
+        <button
+          className="btn primary"
+          title={`${tr('cmp.sc.play')} — Space`}
+          style={{ width: 110 }}
+          onClick={() => (playing ? stop() : play(playhead ?? 0))}
+        >
           <Icon name={playing ? 'stop' : 'play'} className="ic-sm" />
           {playing ? tr('cmp.stop') : tr('cmp.play')}
         </button>
-        <button className={'chip' + (!listenOwn ? ' on' : '')} style={{ height: 34, padding: '0 16px' }} onClick={() => setListen(false)}>
+        <span className="kbd" title={tr('cmp.sc.play')}>Space</span>
+        <span className="mono" style={{ fontSize: 11.5, color: 'var(--text-lo)', minWidth: 82, textAlign: 'center' }}>
+          {fmtTime(playhead ?? 0)} / {fmtTime(timelineSec)}
+        </span>
+        <button
+          className={'chip' + (!listenOwn ? ' on' : '')}
+          title={`${tr('cmp.sc.ab')} — Tab / 1`}
+          style={{ height: 34, padding: '0 16px' }}
+          onClick={() => setListen(false)}
+        >
           A · {tr('cmp.legendRef')}
         </button>
-        <button className={'chip' + (listenOwn ? ' on' : '')} style={{ height: 34, padding: '0 16px' }} onClick={() => setListen(true)}>
+        <button
+          className={'chip' + (listenOwn ? ' on' : '')}
+          title={`${tr('cmp.sc.ab')} — Tab / 2`}
+          style={{ height: 34, padding: '0 16px' }}
+          onClick={() => setListen(true)}
+        >
           B · {tr('cmp.legendOwn')}
         </button>
+        <span className="kbd" title={tr('cmp.sc.ab')}>Tab</span>
         <label className="row gap8" style={{ fontSize: 12.5, color: 'var(--text-mid)', cursor: 'pointer' }}>
           {tr('cmp.simulate')}
           <button className={'cv-toggle' + (simulate ? ' on' : '')} onClick={toggleSimulate} disabled={!analysis}>
@@ -680,6 +762,14 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
             {(monitorDb >= 0 ? '+' : '') + monitorDb} dB
           </span>
         </label>
+        <button
+          className="cv-toolbtn"
+          title={tr('cmp.shortcuts')}
+          onClick={() => setHelpOpen(true)}
+          style={{ width: 26, height: 26, fontFamily: 'var(--font-mono)', fontSize: 13 }}
+        >
+          ?
+        </button>
       </div>
 
       {/* analysis */}
@@ -691,14 +781,29 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
           <div className="indet" style={{ width: '100%' }} />
         </div>
       )}
-      {error && <span style={{ fontSize: 12.5, color: 'var(--lab-red)' }}>{error}</span>}
+      {error && (
+        <div className="card col gap8" style={{ padding: 14, animation: 'view-in .2s ease both' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--lab-red)' }}>{tr('cmp.analysisFailed')}</span>
+          <span className="mono" style={{ fontSize: 11.5, color: 'var(--text-lo)' }}>{error}</span>
+          <button
+            className="btn"
+            style={{ alignSelf: 'flex-start', height: 30, fontSize: 12.5 }}
+            onClick={() => setRetryTick((n) => n + 1)}
+          >
+            <Icon name="refresh" className="ic-sm" />
+            {tr('fr.retry')}
+          </button>
+        </div>
+      )}
       {shown && (
         <>
           <div className="row gap12" style={{ alignItems: 'stretch', flexWrap: 'wrap', animation: 'view-in .3s ease both' }}>
-            <div className="card grow" style={{ padding: 14, minWidth: 380 }}>
+            <div className="card col gap10 grow" style={{ padding: 14, minWidth: 380 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{tr('cmp.spectrum')}</span>
               <SpectrumCompareChart refSpec={shown.refSpec} ownSpec={shown.ownSpec} />
             </div>
-            <div className="card grow" style={{ padding: 14, minWidth: 380 }}>
+            <div className="card col gap10 grow" style={{ padding: 14, minWidth: 380 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{tr('cmp.eqCurve')}</span>
               <EqCurveChart
                 spec={shown.refSpec}
                 eqCurve={shown.eqCurve}
@@ -725,6 +830,45 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
             <CompCard rec={shown.comp} dynamics={shown.dynamics} />
           </div>
         </>
+      )}
+
+      {/* keyboard-shortcut help ("?") */}
+      {helpOpen && (
+        <div
+          onClick={() => setHelpOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 260,
+            background: 'rgba(6,7,9,.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            animation: 'fade-in .14s'
+          }}
+        >
+          <div
+            className="glass col gap10"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 340, borderRadius: 16, padding: 20, boxShadow: 'var(--shadow-pop)', animation: 'pop-in .18s ease' }}
+          >
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 600 }}>{tr('cmp.shortcuts')}</span>
+            {(
+              [
+                ['Space', tr('cmp.sc.play')],
+                ['Tab / 1 / 2', tr('cmp.sc.ab')],
+                ['← / →', tr('cmp.sc.seek')],
+                ['L', tr('cmp.sc.loop')],
+                ['?', tr('cmp.sc.help')]
+              ] as const
+            ).map(([k, label]) => (
+              <div key={k} className="row" style={{ justifyContent: 'space-between', fontSize: 12.5, color: 'var(--text-mid)' }}>
+                <span>{label}</span>
+                <span className="kbd">{k}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

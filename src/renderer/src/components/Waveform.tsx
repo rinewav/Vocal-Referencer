@@ -1,8 +1,14 @@
 /* Peak waveform on canvas. The own track can be shifted by offsetSec and
    dragged horizontally to fine-tune alignment. Click seeks. Tracks with
    onSelectRange use drag to select a loop region instead. */
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { computePeaks } from '../lib/audio'
+
+const fmtHover = (s: number) => {
+  const m = Math.floor(s / 60)
+  const sec = s - m * 60
+  return `${m}:${sec.toFixed(1).padStart(4, '0')}`
+}
 
 export interface WaveformProps {
   buffer: AudioBuffer
@@ -36,6 +42,8 @@ export function Waveform({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const peaksRef = useRef<{ min: Float32Array; max: Float32Array; width: number } | null>(null)
   const dragRef = useRef<{ startX: number; moved: boolean } | null>(null)
+  /* hover time readout (hidden while dragging) */
+  const [hover, setHover] = useState<{ x: number; sec: number } | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -86,10 +94,39 @@ export function Waveform({
   }, [buffer, color, offsetSec, timelineSec, playheadSec, height, loopRange])
 
   return (
+    <div style={{ position: 'relative' }}>
+      {hover && (
+        <div
+          className="glass mono"
+          style={{
+            position: 'absolute',
+            left: Math.max(28, Math.min(hover.x, (canvasRef.current?.clientWidth ?? 200) - 28)),
+            top: -4,
+            transform: 'translate(-50%, -100%)',
+            padding: '3px 7px',
+            borderRadius: 6,
+            fontSize: 10.5,
+            lineHeight: 1.4,
+            pointerEvents: 'none',
+            whiteSpace: 'nowrap',
+            zIndex: 5
+          }}
+        >
+          {fmtHover(hover.sec)}
+        </div>
+      )}
     <canvas
       ref={canvasRef}
       style={{ width: '100%', height, display: 'block', borderRadius: 'var(--r-sm)', background: 'var(--bg-canvas-2)', cursor: onDragOffset ? 'grab' : 'pointer' }}
+      onMouseMove={(e) => {
+        if (dragRef.current) return
+        const rect = e.currentTarget.getBoundingClientRect()
+        const x = e.clientX - rect.left
+        setHover({ x, sec: Math.max(0, Math.min(timelineSec, (x / rect.width) * timelineSec)) })
+      }}
+      onMouseLeave={() => setHover(null)}
       onMouseDown={(e) => {
+        setHover(null)
         dragRef.current = { startX: e.clientX, moved: false }
         const el = e.currentTarget
         const rect = el.getBoundingClientRect()
@@ -122,5 +159,6 @@ export function Waveform({
         window.addEventListener('mouseup', onUp)
       }}
     />
+    </div>
   )
 }

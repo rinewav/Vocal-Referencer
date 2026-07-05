@@ -208,6 +208,20 @@ export function renameSong(songId: string, title: string): void {
   getDb().prepare('UPDATE songs SET title = ? WHERE id = ?').run(trimmed, songId)
 }
 
+/* delete a single own-vocal take (file + row + cached analyses keyed to it).
+   Restricted to kind='own' — separated stems are managed by re-separation. */
+export function removeOwnStem(stemId: string): void {
+  const db = getDb()
+  const stem = db.prepare('SELECT * FROM stems WHERE id = ?').get(stemId) as StemRow | undefined
+  if (!stem || stem.kind !== 'own') return
+  if (existsSync(stem.path)) {
+    try { unlinkSync(stem.path) } catch { /* file busy — orphan is harmless */ }
+  }
+  db.prepare('DELETE FROM stems WHERE id = ?').run(stemId)
+  // analysis cache keys are "<refStemId>|<ownStemId>"
+  db.prepare('DELETE FROM analysis_cache WHERE key LIKE ?').run(`%${stemId}%`)
+}
+
 export function deleteSong(songId: string): void {
   const db = getDb()
   db.prepare('DELETE FROM stems WHERE song_id = ?').run(songId)

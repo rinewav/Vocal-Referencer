@@ -1,6 +1,16 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const api = {
+  /* renderer-side platform switch (titlebar layout, window controls) */
+  platform: process.platform as string,
+  /* frameless-window controls — no-ops on mac (native traffic lights) */
+  win: {
+    minimize: () => ipcRenderer.send('win:minimize'),
+    maximizeToggle: () => ipcRenderer.send('win:maximize-toggle'),
+    close: () => ipcRenderer.send('win:close')
+  },
+  /* reveal a library file in Finder / Explorer */
+  reveal: (path: string) => ipcRenderer.invoke('shell:reveal', path) as Promise<void>,
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value)
@@ -34,7 +44,8 @@ const api = {
     setThumbData: (songId: string, dataUrl: string) => ipcRenderer.invoke('library:set-thumb-data', songId, dataUrl),
     addOwn: (songId: string, filePath: string) => ipcRenderer.invoke('library:add-own', songId, filePath),
     rename: (songId: string, title: string) => ipcRenderer.invoke('library:rename', songId, title),
-    remove: (songId: string) => ipcRenderer.invoke('library:delete', songId)
+    remove: (songId: string) => ipcRenderer.invoke('library:delete', songId),
+    removeOwnStem: (stemId: string) => ipcRenderer.invoke('library:remove-own-stem', stemId)
   },
   cache: {
     get: (key: string) => ipcRenderer.invoke('cache:get', key) as Promise<string | null>,

@@ -62,6 +62,8 @@ const PATHS: Record<string, React.ReactNode> = {
       <path d="M18 6L6 18" />
     </>
   ),
+  minus: <path d="M5 12h14" />,
+  square: <rect x="5.5" y="5.5" width="13" height="13" rx="1.5" />,
   palette: (
     <>
       <path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H13a2 2 0 0 1 0-4h4a4 4 0 0 0 4-4c0-3.5-4-6-9-6z" />
