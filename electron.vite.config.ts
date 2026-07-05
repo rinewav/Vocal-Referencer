@@ -4,7 +4,8 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()]
+    // music-metadata is ESM-only → bundle it instead of externalizing
+    plugins: [externalizeDepsPlugin({ exclude: ['music-metadata'] })]
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

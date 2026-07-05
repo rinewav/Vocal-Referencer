@@ -9,7 +9,20 @@ protocol.registerSchemesAsPrivileged([
 import { getSetting, setSetting } from './settings'
 import { install, health, manifestSummary } from './engine/installer'
 import { enqueueSeparation, Preset } from './engine/sidecar'
-import { addSong, addOwnStem, listSongs, renameSong, deleteSong } from './library'
+import {
+  addSong,
+  addOwnStem,
+  listSongs,
+  renameSong,
+  deleteSong,
+  createProject,
+  setReference,
+  convertRefToWav,
+  setThumbFromFile,
+  setThumbFromData,
+  cacheGet,
+  cacheSet
+} from './library'
 import { exportProQ, ExportBand } from './proq'
 import { buildZlEqPreset, buildZlCompPreset, buildProC2Ffp, saveBuffer, CompParams, EqBand } from './presets'
 import { libraryRoot } from './db'
@@ -65,9 +78,18 @@ app.whenReady().then(() => {
 
   ipcMain.handle('library:list', () => listSongs())
   ipcMain.handle('library:add', (_e, filePath: string) => addSong(filePath))
+  ipcMain.handle('library:create', () => createProject())
+  ipcMain.handle('library:set-ref', (_e, songId: string, filePath: string) => setReference(songId, filePath))
+  ipcMain.handle('library:convert-ref-wav', (_e, songId: string, wav: ArrayBuffer) =>
+    convertRefToWav(songId, Buffer.from(wav))
+  )
+  ipcMain.handle('library:set-thumb-file', (_e, songId: string, imagePath: string) => setThumbFromFile(songId, imagePath))
+  ipcMain.handle('library:set-thumb-data', (_e, songId: string, dataUrl: string) => setThumbFromData(songId, dataUrl))
   ipcMain.handle('library:add-own', (_e, songId: string, filePath: string) => addOwnStem(songId, filePath))
   ipcMain.handle('library:rename', (_e, songId: string, title: string) => renameSong(songId, title))
   ipcMain.handle('library:delete', (_e, songId: string) => deleteSong(songId))
+  ipcMain.handle('cache:get', (_e, key: string) => cacheGet(key))
+  ipcMain.handle('cache:set', (_e, key: string, songId: string, data: string) => cacheSet(key, songId, data))
 
   ipcMain.handle('separate:start', (_e, songId: string, preset: Preset) => enqueueSeparation(songId, preset))
 
@@ -87,9 +109,19 @@ app.whenReady().then(() => {
   ipcMain.handle('dialog:pick-audio', async (_e, multi: boolean) => {
     const res = await dialog.showOpenDialog({
       properties: multi ? ['openFile', 'multiSelections'] : ['openFile'],
-      filters: [{ name: 'Audio', extensions: ['wav', 'flac', 'mp3', 'm4a', 'aiff', 'aif', 'ogg'] }]
+      filters: [
+        { name: 'Audio / Video', extensions: ['wav', 'flac', 'mp3', 'm4a', 'aiff', 'aif', 'ogg', 'mp4', 'mov', 'webm'] }
+      ]
     })
     return res.canceled ? null : res.filePaths
+  })
+
+  ipcMain.handle('dialog:pick-image', async () => {
+    const res = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Image', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]
+    })
+    return res.canceled ? null : res.filePaths[0]
   })
 
   /* drag stems out to a DAW / Finder */

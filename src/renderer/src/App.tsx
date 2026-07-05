@@ -79,13 +79,13 @@ export function App() {
         <LibraryView
           songs={songs}
           reload={reload}
-          onCompare={(song) => {
+          onOpen={(song) => {
             setCompareSong(song)
             setView('compare')
           }}
         />
       ) : compareSong ? (
-        <CompareView key={compareSong.id} song={compareSong} />
+        <CompareView key={compareSong.id} song={compareSong} reload={reload} />
       ) : (
         <div className="ph grow" style={{ margin: 16, borderRadius: 'var(--r-lg)', animation: 'view-in .3s ease both' }}>
           <span className="ph-cap">{tr('cmp.pickSong')}</span>

@@ -23,6 +23,7 @@ import { SpectrumCompareChart, EqCurveChart, CompCard, LoudnessCard, DynamicsDat
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
 import { usePrefs, PrefsStore } from '../prefs'
+import { registerReference } from '../lib/refimport'
 
 interface Analysis {
   lufsRef: number
@@ -44,13 +45,70 @@ type Stage = 'align' | 'lufs' | 'spectrum' | 'comp' | 'render'
 
 const nextTick = () => new Promise((r) => setTimeout(r, 0))
 const FIR_TAPS = 4096
+const CACHE_V = 1
 
-export function CompareView({ song }: { song: Song }) {
+/* ---------- analysis cache (SQLite via main, keyed by stem pair) ---------- */
+
+const f32 = (a: number[]) => Float32Array.from(a)
+
+function serializeAnalysis(a: Analysis, offsetSec: number): string {
+  return JSON.stringify({
+    v: CACHE_V,
+    offsetSec,
+    lufsRef: a.lufsRef,
+    lufsOwn: a.lufsOwn,
+    lufsEq: a.lufsEq,
+    lufsProc: a.lufsProc,
+    autoGainDb: a.autoGainDb,
+    refSpec: { db: Array.from(a.refSpec.db), sampleRate: a.refSpec.sampleRate, fftSize: a.refSpec.fftSize },
+    ownSpec: { db: Array.from(a.ownSpec.db), sampleRate: a.ownSpec.sampleRate, fftSize: a.ownSpec.fftSize },
+    eqCurve: Array.from(a.eqCurve),
+    eqBands: a.eqBands,
+    comp: a.comp,
+    dynamics: {
+      frameSec: a.dynamics.frameSec,
+      refDb: Array.from(a.dynamics.refDb),
+      ownDb: Array.from(a.dynamics.ownDb)
+    }
+  })
+}
+
+function deserializeAnalysis(json: string): { analysis: Analysis; offsetSec: number } | null {
+  try {
+    const d = JSON.parse(json)
+    if (d.v !== CACHE_V) return null
+    const analysis: Analysis = {
+      lufsRef: d.lufsRef,
+      lufsOwn: d.lufsOwn,
+      lufsEq: d.lufsEq,
+      lufsProc: d.lufsProc,
+      autoGainDb: d.autoGainDb,
+      refSpec: { db: f32(d.refSpec.db), sampleRate: d.refSpec.sampleRate, fftSize: d.refSpec.fftSize },
+      ownSpec: { db: f32(d.ownSpec.db), sampleRate: d.ownSpec.sampleRate, fftSize: d.ownSpec.fftSize },
+      eqCurve: f32(d.eqCurve),
+      eqBands: d.eqBands,
+      comp: d.comp,
+      dynamics: { frameSec: d.dynamics.frameSec, refDb: f32(d.dynamics.refDb), ownDb: f32(d.dynamics.ownDb), offsetSec: d.offsetSec }
+    }
+    return { analysis, offsetSec: d.offsetSec }
+  } catch {
+    return null
+  }
+}
+
+export function CompareView({ song, reload }: { song: Song; reload: () => void }) {
   useLang()
   const refCandidates = song.stems.filter((s) => s.kind === 'lead' || s.kind === 'vocals')
   const ownCandidates = song.stems.filter((s) => s.kind === 'own')
   const [refStem, setRefStem] = useState<StemRef | undefined>(refCandidates[0])
   const [ownStem, setOwnStem] = useState<StemRef | undefined>(ownCandidates[0])
+
+  /* stems can arrive later (registration from this view, separation finishing) */
+  useEffect(() => {
+    if (!refStem && refCandidates.length > 0) setRefStem(refCandidates[0])
+    if (!ownStem && ownCandidates.length > 0) setOwnStem(ownCandidates[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song])
 
   const [refBuf, setRefBuf] = useState<AudioBuffer | null>(null)
   const [ownBuf, setOwnBuf] = useState<AudioBuffer | null>(null)
@@ -66,6 +124,11 @@ export function CompareView({ song }: { song: Song }) {
   const [loudnessMatch, setLoudnessMatch] = useState(true)
   const [simulate, setSimulate] = useState(false)
   const [playhead, setPlayhead] = useState<number | null>(null)
+  const [loop, setLoop] = useState<{ a: number; b: number } | null>(null)
+  const loopRef = useRef<{ a: number; b: number } | null>(null)
+  useEffect(() => {
+    loopRef.current = loop && loop.b - loop.a > 0.2 ? loop : null
+  }, [loop])
 
   const firRef = useRef<Float32Array | null>(null)
   const graphRef = useRef<{
@@ -97,10 +160,25 @@ export function CompareView({ song }: { song: Song }) {
       setAnalysis(null)
       firRef.current = null
       try {
+        const cacheKey = `${refStem.id}|${ownStem.id}`
         const [ref, own] = await Promise.all([loadAudioBuffer(refStem.path), loadAudioBuffer(ownStem.path)])
         if (canceled) return
         setRefBuf(ref)
         setOwnBuf(own)
+
+        /* cached pair → restore instantly (only the FIR needs rebuilding) */
+        const cachedJson = window.vr ? await window.vr.cache.get(cacheKey) : null
+        if (cachedJson && !canceled) {
+          const cached = deserializeAnalysis(cachedJson)
+          if (cached) {
+            setOffsetSec(cached.offsetSec)
+            firRef.current = eqCurveToFir(cached.analysis.eqCurve, FIR_TAPS)
+            setAnalysis(cached.analysis)
+            setLoading(false)
+            return
+          }
+        }
+
         const refMono = toMono(ref)
         const ownMono = toMono(own)
         await nextTick()
@@ -148,7 +226,9 @@ export function CompareView({ song }: { song: Song }) {
         const lufsProc = compParams ? integratedLufs(processed) : lufsEq
         const autoGainDb = lufsRef - lufsProc
         if (canceled) return
-        setAnalysis({ lufsRef, lufsOwn, lufsEq, lufsProc, autoGainDb, refSpec, ownSpec, eqCurve, eqBands, comp, dynamics })
+        const result: Analysis = { lufsRef, lufsOwn, lufsEq, lufsProc, autoGainDb, refSpec, ownSpec, eqCurve, eqBands, comp, dynamics }
+        setAnalysis(result)
+        if (window.vr) void window.vr.cache.set(cacheKey, song.id, serializeAnalysis(result, offset))
       } catch (err) {
         if (!canceled) setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -256,7 +336,13 @@ export function CompareView({ song }: { song: Song }) {
       const tick = () => {
         const g = graphRef.current
         if (!g) return
-        setPlayhead(g.startPos + Math.max(0, ctx.currentTime - g.startCtxTime))
+        const pos = g.startPos + Math.max(0, ctx.currentTime - g.startCtxTime)
+        const lp = loopRef.current
+        if (lp && pos >= lp.b) {
+          play(lp.a)
+          return
+        }
+        setPlayhead(pos)
         rafRef.current = requestAnimationFrame(tick)
       }
       rafRef.current = requestAnimationFrame(tick)
@@ -297,7 +383,7 @@ export function CompareView({ song }: { song: Song }) {
       if (e.code === 'Space') {
         e.preventDefault()
         if (playing) stop()
-        else play(playhead ?? 0)
+        else play(playhead ?? loop?.a ?? 0)
       } else if (e.code === 'Tab') {
         e.preventDefault()
         setListen(!listenOwn)
@@ -305,12 +391,70 @@ export function CompareView({ song }: { song: Song }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [playing, playhead, listenOwn, play, stop, setListen])
+  }, [playing, playhead, listenOwn, play, stop, setListen, loop])
 
   if (!refStem || !ownStem) {
+    const hasRefSource = !!song.src_path
+    const pickAndRegisterRef = async () => {
+      const picked = await window.vr!.pickAudio(false)
+      if (picked?.[0]) {
+        await registerReference(song.id, picked[0]).catch(() => {})
+        reload()
+      }
+    }
+    const pickAndAddOwn = async () => {
+      const picked = await window.vr!.pickAudio(false)
+      if (picked?.[0]) {
+        await window.vr!.library.addOwn(song.id, picked[0])
+        reload()
+      }
+    }
+    const row = (color: string, label: string, done: boolean, doneLabel: string, action?: { label: string; onClick: () => void }) => (
+      <div className="row gap10" style={{ padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,.05)', width: '100%' }}>
+        <span className="dot" style={{ background: color }} />
+        <span style={{ fontSize: 13, color: 'var(--text-mid)', minWidth: 130 }}>{label}</span>
+        <span style={{ fontSize: 12.5, color: done ? 'var(--lab-green)' : 'var(--text-faint)' }}>
+          {done ? doneLabel : tr('lib.notSet')}
+        </span>
+        {action && (
+          <button className="btn" style={{ height: 28, fontSize: 12, marginLeft: 'auto' }} onClick={action.onClick}>
+            <Icon name="plus" className="ic-sm" />
+            {action.label}
+          </button>
+        )}
+      </div>
+    )
     return (
-      <div className="ph grow" style={{ margin: 16, borderRadius: 'var(--r-lg)' }}>
-        <span className="ph-cap">{tr('cmp.pickSong')}</span>
+      <div className="row grow" style={{ justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+        <div className="card col gap10" style={{ padding: 22, width: 520, maxWidth: '92%', animation: 'view-in .3s ease both' }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 600 }}>{song.title}</span>
+          <span style={{ fontSize: 12.5, color: 'var(--text-mid)', lineHeight: 1.6 }}>{tr('cmp.setupHint')}</span>
+          {row(
+            'var(--lab-blue)',
+            tr('lib.ref'),
+            hasRefSource,
+            song.src_path.split('/').pop() ?? '',
+            hasRefSource ? undefined : { label: tr('lib.setRef'), onClick: pickAndRegisterRef }
+          )}
+          {hasRefSource &&
+            row(
+              'var(--lab-teal)',
+              tr('cmp.sepStatus'),
+              refCandidates.length > 0,
+              tr('cmp.sepDone'),
+              refCandidates.length > 0
+                ? undefined
+                : { label: tr('lib.separate'), onClick: () => void window.vr!.separate.start(song.id, 'vocal') }
+            )}
+          {row(
+            'var(--lab-pink)',
+            tr('lib.own'),
+            ownCandidates.length > 0,
+            ownCandidates[ownCandidates.length - 1]?.label ?? '',
+            { label: tr('lib.addOwn'), onClick: pickAndAddOwn }
+          )}
+          <span style={{ fontSize: 11.5, color: 'var(--text-faint)', lineHeight: 1.6 }}>{tr('cmp.sepNote')}</span>
+        </div>
       </div>
     )
   }
@@ -345,7 +489,15 @@ export function CompareView({ song }: { song: Song }) {
             <span className="dot" style={{ background: 'var(--lab-blue)' }} />
             {tr('cmp.refTrack')}
           </div>
-          <Waveform buffer={refBuf} color="oklch(0.70 0.14 255 / 0.85)" timelineSec={timelineSec} playheadSec={playhead} onSeek={(s) => (playing ? play(s) : setPlayhead(s))} />
+          <Waveform
+            buffer={refBuf}
+            color="oklch(0.70 0.14 255 / 0.85)"
+            timelineSec={timelineSec}
+            playheadSec={playhead}
+            onSeek={(s) => (playing ? play(s) : setPlayhead(s))}
+            loopRange={loop}
+            onSelectRange={(a, b) => setLoop({ a, b })}
+          />
           <Waveform
             buffer={ownBuf}
             color="oklch(0.73 0.16 350 / 0.85)"
@@ -354,6 +506,7 @@ export function CompareView({ song }: { song: Song }) {
             playheadSec={playhead}
             onSeek={(s) => (playing ? play(s) : setPlayhead(s))}
             onDragOffset={(d) => setOffsetSec((o) => o + d)}
+            loopRange={loop}
           />
           <div className="row gap8" style={{ fontSize: 11.5, color: 'var(--text-mid)' }}>
             <span className="dot" style={{ background: 'var(--lab-pink)' }} />
@@ -399,6 +552,18 @@ export function CompareView({ song }: { song: Song }) {
             <span className="knob" />
           </button>
         </label>
+        {loop && (
+          <span className="chip on mono" style={{ height: 28, fontSize: 11.5 }}>
+            {tr('cmp.loop')} {loop.a.toFixed(1)}–{loop.b.toFixed(1)}s
+            <button
+              title={tr('cmp.loopClear')}
+              style={{ display: 'inline-flex', marginLeft: 6, color: 'inherit' }}
+              onClick={() => setLoop(null)}
+            >
+              <Icon name="x" style={{ width: 11, height: 11 }} />
+            </button>
+          </span>
+        )}
         <label className="row gap8" style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--text-mid)', cursor: 'pointer' }}>
           {tr('cmp.loudnessMatch')}
           {analysis && (

@@ -1,5 +1,6 @@
 /* Peak waveform on canvas. The own track can be shifted by offsetSec and
-   dragged horizontally to fine-tune alignment. Click seeks. */
+   dragged horizontally to fine-tune alignment. Click seeks. Tracks with
+   onSelectRange use drag to select a loop region instead. */
 import React, { useEffect, useRef } from 'react'
 import { computePeaks } from '../lib/audio'
 
@@ -13,10 +14,25 @@ export interface WaveformProps {
   playheadSec: number | null
   onSeek?: (sec: number) => void
   onDragOffset?: (deltaSec: number) => void
+  /* loop region drawn as a highlight (timeline seconds) */
+  loopRange?: { a: number; b: number } | null
+  /* drag reports a live [a, b] selection */
+  onSelectRange?: (a: number, b: number) => void
   height?: number
 }
 
-export function Waveform({ buffer, color, offsetSec = 0, timelineSec, playheadSec, onSeek, onDragOffset, height = 84 }: WaveformProps) {
+export function Waveform({
+  buffer,
+  color,
+  offsetSec = 0,
+  timelineSec,
+  playheadSec,
+  onSeek,
+  onDragOffset,
+  loopRange,
+  onSelectRange,
+  height = 84
+}: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const peaksRef = useRef<{ min: Float32Array; max: Float32Array; width: number } | null>(null)
   const dragRef = useRef<{ startX: number; moved: boolean } | null>(null)
@@ -51,13 +67,23 @@ export function Waveform({ buffer, color, offsetSec = 0, timelineSec, playheadSe
       const yHi = mid + max[x] * (mid - 2)
       ctx.fillRect(gx, yHi, 1, Math.max(1, yLo - yHi))
     }
+    // loop region
+    if (loopRange) {
+      const xa = loopRange.a * pxPerSec
+      const xb = loopRange.b * pxPerSec
+      ctx.fillStyle = 'rgba(255,255,255,0.09)'
+      ctx.fillRect(xa, 0, Math.max(1, xb - xa), height)
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'
+      ctx.fillRect(xa, 0, 1, height)
+      ctx.fillRect(xb, 0, 1, height)
+    }
     // playhead
     if (playheadSec !== null) {
       const px = playheadSec * pxPerSec
       ctx.fillStyle = 'rgba(255,255,255,0.85)'
       ctx.fillRect(px, 0, 1.5, height)
     }
-  }, [buffer, color, offsetSec, timelineSec, playheadSec, height])
+  }, [buffer, color, offsetSec, timelineSec, playheadSec, height, loopRange])
 
   return (
     <canvas
@@ -66,22 +92,29 @@ export function Waveform({ buffer, color, offsetSec = 0, timelineSec, playheadSe
       onMouseDown={(e) => {
         dragRef.current = { startX: e.clientX, moved: false }
         const el = e.currentTarget
+        const rect = el.getBoundingClientRect()
         const pxPerSec = el.clientWidth / timelineSec
+        const secAt = (clientX: number) =>
+          Math.max(0, Math.min(timelineSec, ((clientX - rect.left) / rect.width) * timelineSec))
+        const startSec = secAt(e.clientX)
         const onMove = (ev: MouseEvent) => {
-          if (!dragRef.current || !onDragOffset) return
+          if (!dragRef.current) return
           const dx = ev.clientX - dragRef.current.startX
-          if (Math.abs(dx) > 2) dragRef.current.moved = true
-          if (dragRef.current.moved) {
+          if (Math.abs(dx) > 3) dragRef.current.moved = true
+          if (!dragRef.current.moved) return
+          if (onDragOffset) {
             onDragOffset(dx / pxPerSec)
             dragRef.current.startX = ev.clientX
+          } else if (onSelectRange) {
+            const cur = secAt(ev.clientX)
+            onSelectRange(Math.min(startSec, cur), Math.max(startSec, cur))
           }
         }
         const onUp = (ev: MouseEvent) => {
           window.removeEventListener('mousemove', onMove)
           window.removeEventListener('mouseup', onUp)
           if (dragRef.current && !dragRef.current.moved && onSeek) {
-            const rect = el.getBoundingClientRect()
-            onSeek(((ev.clientX - rect.left) / rect.width) * timelineSec)
+            onSeek(secAt(ev.clientX))
           }
           dragRef.current = null
         }

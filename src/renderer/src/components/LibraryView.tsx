@@ -1,9 +1,11 @@
-/* Library: reference tiles in a thumbnail grid. Each tile = one reference
-   song. The thumbnail (mini waveform) drags out to a DAW; dropping audio
-   onto a tile attaches it as the user's own vocal. Title is click-to-rename,
-   delete is a two-step confirm. */
+/* Library: project tiles in a thumbnail grid. A project = optional reference
+   source + optional own vocal, either can land first (button or drag&drop).
+   Clicking anywhere on a tile opens it in the compare view. Thumbnails come
+   from cover art / video frames / a manual image, falling back to a mini
+   waveform. Reference registration auto-runs stem separation per prefs. */
 import React, { useEffect, useRef, useState } from 'react'
-import { Song, StemRef, SeparateProgress, loadAudioBuffer, computePeaks } from '../lib/audio'
+import { Song, StemRef, SeparateProgress, loadAudioBuffer, computePeaks, audioUrl } from '../lib/audio'
+import { finishRefRegistration, registerReference, maybeChainKaraoke } from '../lib/refimport'
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
 
@@ -56,19 +58,24 @@ function WaveThumb({ path }: { path: string }) {
   return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
 }
 
-function TitleEditor({ song, onRenamed }: { song: Song; onRenamed: () => void }) {
-  const [editing, setEditing] = useState(false)
+function TitleEditor({
+  song,
+  editing,
+  setEditing,
+  onRenamed
+}: {
+  song: Song
+  editing: boolean
+  setEditing: (b: boolean) => void
+  onRenamed: () => void
+}) {
   const [value, setValue] = useState(song.title)
 
   if (!editing) {
     return (
       <span
-        style={{ fontSize: 13.5, fontWeight: 600, cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         title={song.title}
-        onClick={() => {
-          setValue(song.title)
-          setEditing(true)
-        }}
       >
         {song.title}
       </span>
@@ -87,6 +94,7 @@ function TitleEditor({ song, onRenamed }: { song: Song; onRenamed: () => void })
       autoFocus
       style={{ height: 26, fontSize: 13, width: '100%' }}
       value={value}
+      onClick={(e) => e.stopPropagation()}
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -99,21 +107,19 @@ function TitleEditor({ song, onRenamed }: { song: Song; onRenamed: () => void })
   )
 }
 
-function DeleteButton({ onDelete }: { onDelete: () => void }) {
-  useLang()
-  const [arming, setArming] = useState(false)
-  useEffect(() => {
-    if (!arming) return
-    const t = setTimeout(() => setArming(false), 2500)
-    return () => clearTimeout(t)
-  }, [arming])
+/* icon-only tile action with hover title */
+function TileButton({ icon, title, danger, onClick }: { icon: string; title: string; danger?: boolean; onClick: () => void }) {
   return (
     <button
-      className="chip"
-      style={arming ? { background: 'oklch(0.70 0.15 25 / 0.2)', borderColor: 'oklch(0.70 0.15 25 / 0.5)', color: 'var(--lab-red)' } : undefined}
-      onClick={() => (arming ? onDelete() : setArming(true))}
+      className="cv-toolbtn"
+      title={title}
+      style={{ width: 26, height: 26, ...(danger ? { color: 'var(--lab-red)' } : {}) }}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
     >
-      {arming ? tr('lib.deleteConfirm') : tr('lib.delete')}
+      <Icon name={icon} style={{ width: 14, height: 14 }} />
     </button>
   )
 }
@@ -126,8 +132,10 @@ function StemChip({ stem }: { stem: StemRef }) {
       draggable
       title={stem.path}
       style={{ cursor: 'grab', height: 24, fontSize: 11.5 }}
+      onClick={(e) => e.stopPropagation()}
       onDragStart={(e) => {
         e.preventDefault()
+        e.stopPropagation()
         window.vr!.dragStart([stem.path])
       }}
     >
@@ -138,30 +146,80 @@ function StemChip({ stem }: { stem: StemRef }) {
   )
 }
 
+/* ref / own status line inside a tile */
+function SourceRow({
+  color,
+  label,
+  value,
+  actionTitle,
+  onAction
+}: {
+  color: string
+  label: string
+  value: string | null
+  actionTitle: string
+  onAction: () => void
+}) {
+  return (
+    <div className="row gap6" style={{ fontSize: 11.5, minWidth: 0 }}>
+      <span className="dot" style={{ background: color, width: 7, height: 7 }} />
+      <span style={{ color: 'var(--text-lo)', flex: 'none' }}>{label}</span>
+      <span
+        style={{
+          color: value ? 'var(--text-mid)' : 'var(--text-faint)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {value ?? tr('lib.notSet')}
+      </span>
+      <span style={{ marginLeft: 'auto' }}>
+        <TileButton icon={value ? 'refresh' : 'plus'} title={actionTitle} onClick={onAction} />
+      </span>
+    </div>
+  )
+}
+
 export function LibraryView({
   songs,
   reload,
-  onCompare
+  onOpen
 }: {
   songs: Song[]
   reload: () => void
-  onCompare: (song: Song) => void
+  onOpen: (song: Song) => void
 }) {
   useLang()
   const [progress, setProgress] = useState<Record<string, SeparateProgress>>({})
   const [tileDropId, setTileDropId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleteArmId, setDeleteArmId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!hasApi) return
     return window.vr!.separate.onProgress((p: unknown) => {
       const prog = p as SeparateProgress
       setProgress((prev) => ({ ...prev, [prog.songId]: prog }))
-      if (prog.stage === 'done') reload()
+      if (prog.stage === 'done') {
+        reload()
+        void maybeChainKaraoke(prog.songId, prog.preset)
+      }
     })
   }, [reload])
 
+  useEffect(() => {
+    if (!deleteArmId) return
+    const t = setTimeout(() => setDeleteArmId(null), 2500)
+    return () => clearTimeout(t)
+  }, [deleteArmId])
+
   const addFiles = async (paths: string[]) => {
-    for (const p of paths) await window.vr!.library.add(p)
+    for (const p of paths) {
+      const song = (await window.vr!.library.add(p)) as Song
+      reload()
+      await finishRefRegistration(song.id, song.src_path).catch(() => {})
+    }
     reload()
   }
 
@@ -170,9 +228,20 @@ export function LibraryView({
       .map((f) => window.vr!.pathForFile(f))
       .filter(Boolean)
 
-  const pickAndAdd = async () => {
-    const paths = await window.vr!.pickAudio(true)
-    if (paths) addFiles(paths)
+  const newProject = async () => {
+    await window.vr!.library.create()
+    reload()
+  }
+
+  const setRef = async (songId: string, path?: string) => {
+    let p = path
+    if (!p) {
+      const picked = await window.vr!.pickAudio(false)
+      p = picked?.[0]
+    }
+    if (!p) return
+    await registerReference(songId, p).catch(() => {})
+    reload()
   }
 
   const addOwn = async (songId: string, path?: string) => {
@@ -183,6 +252,14 @@ export function LibraryView({
     }
     if (p) {
       await window.vr!.library.addOwn(songId, p)
+      reload()
+    }
+  }
+
+  const pickThumb = async (songId: string) => {
+    const img = await window.vr!.pickImage()
+    if (img) {
+      await window.vr!.library.setThumbFile(songId, img)
       reload()
     }
   }
@@ -199,9 +276,9 @@ export function LibraryView({
       }}
     >
       <div className="row gap10" style={{ animation: 'view-in .3s ease both' }}>
-        <button className="btn primary" onClick={pickAndAdd}>
+        <button className="btn primary" onClick={newProject}>
           <Icon name="plus" className="ic-sm" />
-          {tr('lib.add')}
+          {tr('lib.newProject')}
         </button>
         <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>{tr('lib.dropHint')}</span>
       </div>
@@ -221,7 +298,8 @@ export function LibraryView({
           const busy = prog && (prog.stage === 'separating' || prog.stage === 'model-download')
           const hasVocals = song.stems.some((s) => s.kind === 'vocals')
           const hasLead = song.stems.some((s) => s.kind === 'lead')
-          const hasOwn = song.stems.some((s) => s.kind === 'own')
+          const ownStems = song.stems.filter((s) => s.kind === 'own')
+          const hasRef = !!song.src_path
           return (
             <div
               key={song.id}
@@ -229,8 +307,10 @@ export function LibraryView({
               style={{
                 animation: 'view-in .3s ease both',
                 animationDelay: `${60 + Math.min(i, 8) * 55}ms`,
+                cursor: 'pointer',
                 outline: tileDropId === song.id ? '2px solid var(--accent-line)' : 'none'
               }}
+              onClick={() => onOpen(song)}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes('Files')) {
                   e.preventDefault()
@@ -244,44 +324,89 @@ export function LibraryView({
                 e.stopPropagation()
                 setTileDropId(null)
                 const paths = dropPaths(e)
-                if (paths[0]) addOwn(song.id, paths[0])
+                // 空プロジェクトへの最初のドロップ = リファレンス、以後 = 自分のボーカル
+                if (paths[0]) hasRef ? addOwn(song.id, paths[0]) : setRef(song.id, paths[0])
               }}
             >
-              {/* thumbnail: mini waveform, drags the original out to a DAW */}
+              {/* thumbnail: image (cover art / video frame / manual) or waveform */}
               <div
-                draggable
-                title={song.src_path}
+                draggable={hasRef}
+                title={song.src_path || undefined}
                 style={{
                   height: 96,
-                  cursor: 'grab',
+                  cursor: hasRef ? 'grab' : 'pointer',
                   background:
                     'radial-gradient(420px 200px at 80% -30%, oklch(0.30 0.06 var(--accent-h) / 0.35), transparent 70%), var(--bg-canvas-2)'
                 }}
                 onDragStart={(e) => {
                   e.preventDefault()
-                  window.vr!.dragStart([song.src_path])
+                  if (hasRef) window.vr!.dragStart([song.src_path])
                 }}
               >
-                <WaveThumb path={song.src_path} />
+                {song.thumb ? (
+                  <img
+                    src={audioUrl(song.thumb)}
+                    alt=""
+                    draggable={false}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  />
+                ) : hasRef ? (
+                  <WaveThumb path={song.src_path} />
+                ) : (
+                  <div className="row" style={{ height: '100%', justifyContent: 'center' }}>
+                    <Icon name="plus" style={{ width: 22, height: 22, color: 'var(--text-faint)' }} />
+                  </div>
+                )}
               </div>
 
               <div className="col gap8" style={{ padding: '10px 12px 12px' }}>
-                <div className="row gap8" style={{ minWidth: 0 }}>
-                  <div className="grow" style={{ minWidth: 0 }}>
-                    <TitleEditor song={song} onRenamed={reload} />
+                <div className="row gap6" style={{ minWidth: 0 }}>
+                  <div className="grow" style={{ minWidth: 0 }} onClick={(e) => editingId === song.id && e.stopPropagation()}>
+                    <TitleEditor
+                      song={song}
+                      editing={editingId === song.id}
+                      setEditing={(b) => setEditingId(b ? song.id : null)}
+                      onRenamed={reload}
+                    />
                   </div>
-                  <DeleteButton
-                    onDelete={async () => {
-                      await window.vr!.library.remove(song.id)
-                      reload()
+                  <TileButton icon="pencil" title={tr('lib.rename')} onClick={() => setEditingId(song.id)} />
+                  <TileButton icon="image" title={tr('lib.thumb')} onClick={() => pickThumb(song.id)} />
+                  <TileButton
+                    icon="x"
+                    title={deleteArmId === song.id ? tr('lib.deleteConfirm') : tr('lib.delete')}
+                    danger={deleteArmId === song.id}
+                    onClick={async () => {
+                      if (deleteArmId === song.id) {
+                        await window.vr!.library.remove(song.id)
+                        setDeleteArmId(null)
+                        reload()
+                      } else setDeleteArmId(song.id)
                     }}
                   />
                 </div>
 
+                <SourceRow
+                  color="var(--lab-blue)"
+                  label={tr('lib.ref')}
+                  value={hasRef ? song.src_path.split('/').pop()! : null}
+                  actionTitle={hasRef ? tr('lib.replaceRef') : tr('lib.setRef')}
+                  onAction={() => setRef(song.id)}
+                />
+                <SourceRow
+                  color="var(--lab-pink)"
+                  label={tr('lib.own')}
+                  value={ownStems.length > 0 ? (ownStems[ownStems.length - 1].label ?? `${ownStems.length}`) : null}
+                  actionTitle={tr('lib.addOwn')}
+                  onAction={() => addOwn(song.id)}
+                />
+
                 {busy && (
                   <div className="col gap4">
                     <div className="row" style={{ justifyContent: 'space-between', fontSize: 11, color: 'var(--text-mid)' }}>
-                      <span>{tr('lib.stage.' + prog.stage)}</span>
+                      <span>
+                        {tr('lib.stage.' + prog.stage)}
+                        {prog.preset === 'karaoke' ? ` · ${tr('lib.separateKaraoke')}` : ''}
+                      </span>
                       <span className="mono">{prog.pct}%</span>
                     </div>
                     <div style={{ height: 5, borderRadius: 3, background: 'rgba(255,255,255,.08)', overflow: 'hidden' }}>
@@ -304,30 +429,42 @@ export function LibraryView({
                 )}
 
                 <div className="row gap6" style={{ flexWrap: 'wrap' }}>
-                  {!busy && !hasVocals && (
-                    <button className="btn" style={{ height: 28, fontSize: 12 }} onClick={() => window.vr!.separate.start(song.id, 'vocal')}>
+                  {!busy && hasRef && !hasVocals && (
+                    <button
+                      className="btn"
+                      style={{ height: 28, fontSize: 12 }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        window.vr!.separate.start(song.id, 'vocal')
+                      }}
+                    >
                       <Icon name="bolt" className="ic-sm" />
                       {tr('lib.separate')}
                     </button>
                   )}
                   {!busy && hasVocals && !hasLead && (
-                    <button className="btn ghost" style={{ height: 28, fontSize: 12 }} onClick={() => window.vr!.separate.start(song.id, 'karaoke')}>
+                    <button
+                      className="btn ghost"
+                      style={{ height: 28, fontSize: 12 }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        window.vr!.separate.start(song.id, 'karaoke')
+                      }}
+                    >
                       <Icon name="bolt" className="ic-sm" />
                       {tr('lib.separateKaraoke')}
                     </button>
                   )}
-                  <button className="btn ghost" style={{ height: 28, fontSize: 12 }} onClick={() => addOwn(song.id)}>
-                    <Icon name="mic" className="ic-sm" />
-                    {tr('lib.addOwn')}
-                  </button>
                   <button
                     className="btn primary"
-                    style={{ height: 28, fontSize: 12, marginLeft: 'auto', opacity: hasVocals && hasOwn ? 1 : 0.4 }}
-                    disabled={!(hasVocals && hasOwn)}
-                    onClick={() => onCompare(song)}
+                    style={{ height: 28, fontSize: 12, marginLeft: 'auto' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onOpen(song)
+                    }}
                   >
                     <Icon name="compare" className="ic-sm" />
-                    {tr('lib.compare')}
+                    {tr('lib.open')}
                   </button>
                 </div>
               </div>

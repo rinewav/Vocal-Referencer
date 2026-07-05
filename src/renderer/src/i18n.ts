@@ -44,7 +44,19 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'nav.library': { ja: 'ライブラリ', en: 'Library' },
   'nav.compare': { ja: '比較', en: 'Compare' },
   'lib.add': { ja: 'リファレンスを追加', en: 'Add reference' },
-  'lib.dropHint': { ja: 'ここに音声ファイルをドロップでも追加できます', en: 'You can also drop audio files here' },
+  'lib.newProject': { ja: 'プロジェクトを新規作成', en: 'New project' },
+  'lib.open': { ja: '開く', en: 'Open' },
+  'lib.ref': { ja: 'リファレンス', en: 'Reference' },
+  'lib.own': { ja: '自分のボーカル', en: 'Your vocal' },
+  'lib.notSet': { ja: '未登録', en: 'Not set' },
+  'lib.setRef': { ja: 'リファレンス登録', en: 'Set reference' },
+  'lib.replaceRef': { ja: 'リファレンス差し替え', en: 'Replace reference' },
+  'lib.rename': { ja: '名称変更', en: 'Rename' },
+  'lib.thumb': { ja: 'サムネイル画像を設定', en: 'Set thumbnail image' },
+  'lib.dropHint': {
+    ja: '音声 / 動画ファイルをドロップでプロジェクト作成。タイルにドロップで登録',
+    en: 'Drop audio / video here to create a project, or onto a tile to attach'
+  },
   'lib.separate': { ja: 'ボーカル抽出', en: 'Extract vocals' },
   'lib.separateKaraoke': { ja: 'リード/コーラス分離', en: 'Split lead/backing' },
   'lib.addOwn': { ja: '自分のボーカル', en: 'Your vocal' },
@@ -155,6 +167,18 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'cmp.bakedGainNote': {
     ja: '書き出しにラウドネス補正ゲインを含む (設定で変更可)',
     en: 'Exports include the loudness-match gain (change in Settings)'
+  },
+  'cmp.loop': { ja: 'ループ', en: 'Loop' },
+  'cmp.loopClear': { ja: 'ループ解除', en: 'Clear loop' },
+  'cmp.setupHint': {
+    ja: 'このプロジェクトにはまだ比較に必要な素材が揃っていません。リファレンスと自分のボーカルはどちらが先でも登録できます。',
+    en: 'This project is missing sources for comparison. Reference and your vocal can be added in either order.'
+  },
+  'cmp.sepStatus': { ja: 'ボーカル分離', en: 'Vocal separation' },
+  'cmp.sepDone': { ja: '完了', en: 'Done' },
+  'cmp.sepNote': {
+    ja: '分離はリファレンス登録時に自動実行されます (設定 → 一般 で変更可)。波形をドラッグするとループ区間を選択できます。',
+    en: 'Separation runs automatically when a reference is added (Settings → General). Drag on a waveform to select a loop region.'
   }
 }
 

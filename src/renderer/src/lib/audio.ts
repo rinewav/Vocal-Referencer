@@ -13,9 +13,11 @@ export interface Song {
   id: string
   title: string
   artist: string | null
+  /* '' while the project has no reference yet */
   src_path: string
   duration: number | null
   tags: string
+  thumb: string | null
   created_at: number
   stems: StemRef[]
 }
@@ -45,6 +47,45 @@ export async function loadAudioBuffer(path: string): Promise<AudioBuffer> {
   if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`)
   const bytes = await res.arrayBuffer()
   return audioContext().decodeAudioData(bytes)
+}
+
+/* 16-bit PCM WAV encode — used to turn a decoded video audio track into a
+   plain audio file the analysis and separation engine can work from */
+export function audioBufferToWav(buf: AudioBuffer): ArrayBuffer {
+  const numCh = Math.min(2, buf.numberOfChannels)
+  const rate = buf.sampleRate
+  const frames = buf.length
+  const bytesPerFrame = numCh * 2
+  const dataSize = frames * bytesPerFrame
+  const out = new ArrayBuffer(44 + dataSize)
+  const v = new DataView(out)
+  const writeStr = (off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i))
+  }
+  writeStr(0, 'RIFF')
+  v.setUint32(4, 36 + dataSize, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  v.setUint32(16, 16, true)
+  v.setUint16(20, 1, true) // PCM
+  v.setUint16(22, numCh, true)
+  v.setUint32(24, rate, true)
+  v.setUint32(28, rate * bytesPerFrame, true)
+  v.setUint16(32, bytesPerFrame, true)
+  v.setUint16(34, 16, true)
+  writeStr(36, 'data')
+  v.setUint32(40, dataSize, true)
+  const chans: Float32Array[] = []
+  for (let c = 0; c < numCh; c++) chans.push(buf.getChannelData(c))
+  let off = 44
+  for (let i = 0; i < frames; i++) {
+    for (let c = 0; c < numCh; c++) {
+      const s = Math.max(-1, Math.min(1, chans[c][i]))
+      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+      off += 2
+    }
+  }
+  return out
 }
 
 /* Offline render of the own vocal through the suggested chain (FIR EQ and/or

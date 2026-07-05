@@ -20,10 +20,20 @@ const api = {
   library: {
     list: () => ipcRenderer.invoke('library:list'),
     add: (filePath: string) => ipcRenderer.invoke('library:add', filePath),
+    create: () => ipcRenderer.invoke('library:create'),
+    setRef: (songId: string, filePath: string) => ipcRenderer.invoke('library:set-ref', songId, filePath),
+    convertRefWav: (songId: string, wav: ArrayBuffer) => ipcRenderer.invoke('library:convert-ref-wav', songId, wav),
+    setThumbFile: (songId: string, imagePath: string) => ipcRenderer.invoke('library:set-thumb-file', songId, imagePath),
+    setThumbData: (songId: string, dataUrl: string) => ipcRenderer.invoke('library:set-thumb-data', songId, dataUrl),
     addOwn: (songId: string, filePath: string) => ipcRenderer.invoke('library:add-own', songId, filePath),
     rename: (songId: string, title: string) => ipcRenderer.invoke('library:rename', songId, title),
     remove: (songId: string) => ipcRenderer.invoke('library:delete', songId)
   },
+  cache: {
+    get: (key: string) => ipcRenderer.invoke('cache:get', key) as Promise<string | null>,
+    set: (key: string, songId: string, data: string) => ipcRenderer.invoke('cache:set', key, songId, data)
+  },
+  pickImage: () => ipcRenderer.invoke('dialog:pick-image') as Promise<string | null>,
   separate: {
     start: (songId: string, preset: string) => ipcRenderer.invoke('separate:start', songId, preset),
     onProgress: (cb: (progress: unknown) => void) => {
