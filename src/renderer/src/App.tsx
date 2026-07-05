@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { FirstRun } from './components/FirstRun'
 import { LibraryView } from './components/LibraryView'
 import { CompareView } from './components/CompareView'
+import { Settings } from './components/Settings'
 import { Icon } from './components/Icon'
 import { Song } from './lib/audio'
 import { tr, useLang } from './i18n'
+import './prefs' // boot-time theme apply
 
 const hasApi = typeof window !== 'undefined' && !!window.vr
 
@@ -16,6 +18,7 @@ export function App() {
   const [view, setView] = useState<View>('library')
   const [songs, setSongs] = useState<Song[]>([])
   const [compareSong, setCompareSong] = useState<Song | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const reload = useCallback(async () => {
     if (!hasApi) return
@@ -38,7 +41,7 @@ export function App() {
   if (firstRun) return <FirstRun onDone={() => setFirstRun(false)} />
 
   return (
-    <div className="col" style={{ height: '100%' }}>
+    <div className="col" style={{ height: '100%', position: 'relative' }}>
       {/* titlebar — draggable strip, mac traffic lights need left padding */}
       <div className="cv-titlebar drag-strip" style={{ position: 'relative', paddingLeft: 76 }}>
         <div className="row gap10" style={{ paddingLeft: 12 }}>
@@ -59,8 +62,18 @@ export function App() {
             </button>
           </div>
         </div>
-        <div style={{ width: 120 }} />
+        <div className="row no-drag" style={{ width: 120, justifyContent: 'flex-end', paddingRight: 12 }}>
+          <button
+            className="cv-toolbtn"
+            title={tr('set.title')}
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Icon name="settings" className="ic-sm" />
+          </button>
+        </div>
       </div>
+
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
 
       {view === 'library' ? (
         <LibraryView

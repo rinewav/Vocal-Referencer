@@ -34,8 +34,15 @@ const api = {
       }
     }
   },
-  exportProQ: (bands: { freqHz: number; gainDb: number; q: number }[], defaultName: string) =>
-    ipcRenderer.invoke('export:proq', bands, defaultName) as Promise<string | null>,
+  exportProQ: (bands: { freqHz: number; gainDb: number; q: number }[], defaultName: string, outputGainDb?: number) =>
+    ipcRenderer.invoke('export:proq', bands, defaultName, outputGainDb ?? 0) as Promise<string | null>,
+  exportZlEq: (bands: { freqHz: number; gainDb: number; q: number }[], defaultName: string, outputGainDb?: number) =>
+    ipcRenderer.invoke('export:zleq', bands, defaultName, outputGainDb ?? 0) as Promise<string | null>,
+  exportZlComp: (comp: { thresholdDb: number; ratio: number; attackMs: number; releaseMs: number }, defaultName: string) =>
+    ipcRenderer.invoke('export:zlcomp', comp, defaultName) as Promise<string | null>,
+  exportProC2: (comp: { thresholdDb: number; ratio: number; attackMs: number; releaseMs: number }, defaultName: string) =>
+    ipcRenderer.invoke('export:proc2', comp, defaultName) as Promise<string | null>,
+  appVersion: () => ipcRenderer.invoke('app:version') as Promise<string>,
   pickAudio: (multi: boolean) => ipcRenderer.invoke('dialog:pick-audio', multi) as Promise<string[] | null>,
   dragStart: (paths: string[]) => ipcRenderer.send('drag:start', paths),
   pathForFile: (file: File) => webUtils.getPathForFile(file)

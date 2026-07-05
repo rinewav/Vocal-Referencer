@@ -11,6 +11,7 @@ import { install, health, manifestSummary } from './engine/installer'
 import { enqueueSeparation, Preset } from './engine/sidecar'
 import { addSong, addOwnStem, listSongs, renameSong, deleteSong } from './library'
 import { exportProQ, ExportBand } from './proq'
+import { buildZlEqPreset, buildZlCompPreset, buildProC2Ffp, saveBuffer, CompParams, EqBand } from './presets'
 import { libraryRoot } from './db'
 
 function createWindow(): void {
@@ -55,6 +56,7 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(filePath).href)
   })
 
+  ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('settings:get', (_e, key: string) => getSetting(key))
   ipcMain.handle('settings:set', (_e, key: string, value: unknown) => setSetting(key, value))
   ipcMain.handle('engine:health', () => health())
@@ -69,7 +71,18 @@ app.whenReady().then(() => {
 
   ipcMain.handle('separate:start', (_e, songId: string, preset: Preset) => enqueueSeparation(songId, preset))
 
-  ipcMain.handle('export:proq', (_e, bands: ExportBand[], defaultName: string) => exportProQ(bands, defaultName))
+  ipcMain.handle('export:proq', (_e, bands: ExportBand[], defaultName: string, outputGainDb: number) =>
+    exportProQ(bands, defaultName, outputGainDb ?? 0)
+  )
+  ipcMain.handle('export:zleq', (_e, bands: EqBand[], defaultName: string, outputGainDb: number) =>
+    saveBuffer(defaultName, 'VST3 Preset', 'vstpreset', buildZlEqPreset(bands, outputGainDb ?? 0))
+  )
+  ipcMain.handle('export:zlcomp', (_e, comp: CompParams, defaultName: string) =>
+    saveBuffer(defaultName, 'VST3 Preset', 'vstpreset', buildZlCompPreset(comp))
+  )
+  ipcMain.handle('export:proc2', (_e, comp: CompParams, defaultName: string) =>
+    saveBuffer(defaultName, 'FabFilter Preset', 'ffp', buildProC2Ffp(comp))
+  )
 
   ipcMain.handle('dialog:pick-audio', async (_e, multi: boolean) => {
     const res = await dialog.showOpenDialog({

@@ -49,6 +49,84 @@ const PATHS: Record<string, React.ReactNode> = {
       <rect x="3.5" y="7" width="6" height="10" rx="1.5" />
       <rect x="14.5" y="5" width="6" height="14" rx="1.5" />
     </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" />
+    </>
+  ),
+  x: (
+    <>
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </>
+  ),
+  palette: (
+    <>
+      <path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 0-4H13a2 2 0 0 1 0-4h4a4 4 0 0 0 4-4c0-3.5-4-6-9-6z" />
+      <circle cx="7.5" cy="11" r="1" />
+      <circle cx="10" cy="7" r="1" />
+      <circle cx="14.5" cy="6.5" r="1" />
+    </>
+  ),
+  sliders: (
+    <>
+      <path d="M5 4v6M5 14v6M12 4v2M12 10v10M19 4v10M19 18v2" />
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="8" r="2" />
+      <circle cx="19" cy="16" r="2" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 7.5v.5" />
+    </>
+  ),
+  pencil: (
+    <>
+      <path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z" />
+      <path d="M14.5 6.5l3 3" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M20 12a8 8 0 1 1-2.3-5.6" />
+      <path d="M20 3v4h-4" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </>
+  ),
+  folder: (
+    <>
+      <path d="M3.5 6.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11z" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M4 17l5-4.5 3.5 3 3.5-3.5 4 4" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 14a4 4 0 0 0 6 .4l2.5-2.5a4 4 0 0 0-5.7-5.7L11.6 7.4" />
+      <path d="M14 10a4 4 0 0 0-6-.4L5.5 12.1a4 4 0 0 0 5.7 5.7l1.2-1.2" />
+    </>
+  ),
+  volume: (
+    <>
+      <path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4z" />
+      <path d="M15.5 9a4.5 4.5 0 0 1 0 6" />
+      <path d="M18 6.5a8 8 0 0 1 0 11" />
+    </>
   )
 }
 

@@ -47,6 +47,43 @@ export async function loadAudioBuffer(path: string): Promise<AudioBuffer> {
   return audioContext().decodeAudioData(bytes)
 }
 
+/* Offline render of the own vocal through the suggested chain (FIR EQ and/or
+   compressor) — mirrors the live simulate graph so the measured loudness of
+   the rendered audio equals what the user actually hears. */
+export async function renderProcessed(
+  own: AudioBuffer,
+  fir: Float32Array | null,
+  comp: { thresholdDb: number; ratio: number; attackMs: number; releaseMs: number } | null
+): Promise<AudioBuffer> {
+  const tail = fir ? fir.length : 0
+  const off = new OfflineAudioContext(own.numberOfChannels, own.length + tail, own.sampleRate)
+  const src = off.createBufferSource()
+  src.buffer = own
+  let head: AudioNode = src
+  if (fir) {
+    const irBuf = off.createBuffer(1, fir.length, off.sampleRate)
+    irBuf.copyToChannel(fir as Float32Array<ArrayBuffer>, 0)
+    const conv = off.createConvolver()
+    conv.normalize = false
+    conv.buffer = irBuf
+    head.connect(conv)
+    head = conv
+  }
+  if (comp) {
+    const c = off.createDynamicsCompressor()
+    c.threshold.value = Math.max(-100, comp.thresholdDb)
+    c.ratio.value = Math.min(20, comp.ratio)
+    c.knee.value = 6
+    c.attack.value = comp.attackMs / 1000
+    c.release.value = comp.releaseMs / 1000
+    head.connect(c)
+    head = c
+  }
+  head.connect(off.destination)
+  src.start()
+  return off.startRendering()
+}
+
 /* min/max peak pairs per pixel column for waveform drawing */
 export function computePeaks(buffer: AudioBuffer, width: number): { min: Float32Array; max: Float32Array } {
   const ch = buffer.getChannelData(0)

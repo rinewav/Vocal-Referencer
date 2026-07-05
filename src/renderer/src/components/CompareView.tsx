@@ -3,7 +3,7 @@
    switching, spectrum/EQ/compressor analysis, and a processing preview that
    plays the own vocal through the suggested EQ (FIR convolver) + compressor. */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Song, StemRef, loadAudioBuffer, audioContext } from '../lib/audio'
+import { Song, StemRef, loadAudioBuffer, audioContext, renderProcessed } from '../lib/audio'
 import {
   averageSpectrum,
   eqMatchCurve,
@@ -13,29 +13,34 @@ import {
   toMono,
   compRecommendation,
   envelopeSeriesDb,
-  simulateComp,
   fitParametricBands,
   EqBandFit,
   Spectrum,
   CompRecommendation
 } from '../lib/dsp'
 import { Waveform } from './Waveform'
-import { SpectrumCompareChart, EqCurveChart, CompCard, DynamicsData } from './AnalysisPanel'
+import { SpectrumCompareChart, EqCurveChart, CompCard, LoudnessCard, DynamicsData } from './AnalysisPanel'
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
+import { usePrefs, PrefsStore } from '../prefs'
 
 interface Analysis {
   lufsRef: number
   lufsOwn: number
+  /* measured LUFS of the own vocal rendered through EQ only / EQ+comp */
+  lufsEq: number
+  lufsProc: number
+  /* gain that makes the processed own vocal land on the reference loudness */
+  autoGainDb: number
   refSpec: Spectrum
   ownSpec: Spectrum
   eqCurve: Float32Array
   eqBands: EqBandFit[]
   comp: CompRecommendation
   dynamics: DynamicsData
-  /* average gain reduction of the simulated comp — used as makeup gain */
-  makeupDb: number
 }
+
+type Stage = 'align' | 'lufs' | 'spectrum' | 'comp' | 'render'
 
 const nextTick = () => new Promise((r) => setTimeout(r, 0))
 const FIR_TAPS = 4096
@@ -52,7 +57,9 @@ export function CompareView({ song }: { song: Song }) {
   const [offsetSec, setOffsetSec] = useState(0)
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [loading, setLoading] = useState(false)
+  const [stage, setStage] = useState<Stage>('align')
   const [error, setError] = useState<string | null>(null)
+  const { monitorDb, bakeGain } = usePrefs()
 
   const [playing, setPlaying] = useState(false)
   const [listenOwn, setListenOwn] = useState(false)
@@ -66,11 +73,18 @@ export function CompareView({ song }: { song: Song }) {
     ownSrc: AudioBufferSourceNode | null
     refGain: GainNode
     ownGain: GainNode
+    masterGain: GainNode
     startCtxTime: number
     startPos: number
     simulated: boolean
   } | null>(null)
   const rafRef = useRef(0)
+
+  /* monitor volume: live-apply to the playing graph, never touches analysis */
+  useEffect(() => {
+    const g = graphRef.current
+    if (g) g.masterGain.gain.setTargetAtTime(Math.pow(10, monitorDb / 20), audioContext().currentTime, 0.01)
+  }, [monitorDb])
 
   /* ---------- load + analyze ---------- */
   useEffect(() => {
@@ -78,6 +92,7 @@ export function CompareView({ song }: { song: Song }) {
     let canceled = false
     ;(async () => {
       setLoading(true)
+      setStage('align')
       setError(null)
       setAnalysis(null)
       firRef.current = null
@@ -92,16 +107,20 @@ export function CompareView({ song }: { song: Song }) {
         const offset = detectOffset(refMono, ownMono, ref.sampleRate)
         if (canceled) return
         setOffsetSec(offset)
+        setStage('lufs')
         await nextTick()
         const lufsRef = integratedLufs(ref)
         await nextTick()
         const lufsOwn = integratedLufs(own)
+        setStage('spectrum')
         await nextTick()
         const refSpec = averageSpectrum(refMono, ref.sampleRate)
         await nextTick()
         const ownSpec = averageSpectrum(ownMono, own.sampleRate)
         const eqCurve = eqMatchCurve(refSpec, ownSpec)
         const eqBands = fitParametricBands(eqCurve, refSpec)
+        setStage('comp')
+        await nextTick()
         const comp = compRecommendation(refMono, ownMono, ref.sampleRate)
         const refEnv = envelopeSeriesDb(refMono, ref.sampleRate)
         const ownEnv = envelopeSeriesDb(ownMono, own.sampleRate)
@@ -111,22 +130,25 @@ export function CompareView({ song }: { song: Song }) {
           ownDb: ownEnv.db,
           offsetSec: offset
         }
-        // makeup: average gain reduction over active frames
-        let makeupDb = 0
-        if (comp.ratio !== null && comp.thresholdDb !== null) {
-          const comped = simulateComp(ownEnv.db, ownEnv.frameSec, comp.thresholdDb, comp.ratio, comp.attackMs, comp.releaseMs)
-          let sum = 0
-          let n = 0
-          for (let i = 0; i < ownEnv.db.length; i++) {
-            if (ownEnv.db[i] > -60) {
-              sum += ownEnv.db[i] - comped[i]
-              n++
-            }
-          }
-          makeupDb = n > 0 ? sum / n : 0
-        }
+        /* measured loudness through the suggested chain (same nodes as the
+           live simulate graph) → exact auto gain, EQ/comp contributions */
+        setStage('render')
+        await nextTick()
+        const fir = eqCurveToFir(eqCurve, FIR_TAPS)
+        firRef.current = fir
+        const compParams =
+          comp.ratio !== null && comp.thresholdDb !== null
+            ? { thresholdDb: comp.thresholdDb, ratio: comp.ratio, attackMs: comp.attackMs, releaseMs: comp.releaseMs }
+            : null
+        const eqOnly = await renderProcessed(own, fir, null)
         if (canceled) return
-        setAnalysis({ lufsRef, lufsOwn, refSpec, ownSpec, eqCurve, eqBands, comp, dynamics, makeupDb })
+        const lufsEq = integratedLufs(eqOnly)
+        const processed = compParams ? await renderProcessed(own, fir, compParams) : eqOnly
+        if (canceled) return
+        const lufsProc = compParams ? integratedLufs(processed) : lufsEq
+        const autoGainDb = lufsRef - lufsProc
+        if (canceled) return
+        setAnalysis({ lufsRef, lufsOwn, lufsEq, lufsProc, autoGainDb, refSpec, ownSpec, eqCurve, eqBands, comp, dynamics })
       } catch (err) {
         if (!canceled) setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -163,8 +185,9 @@ export function CompareView({ song }: { song: Song }) {
     (listen: boolean, simulated: boolean) => {
       if (!listen) return 0.0001
       let db = 0
-      if (loudnessMatch && analysis) db += analysis.lufsRef - analysis.lufsOwn
-      if (simulated && analysis) db += analysis.makeupDb
+      // loudness match: raw own → static LUFS diff; processed own → measured
+      // post-chain correction (covers EQ energy shift + comp makeup)
+      if (loudnessMatch && analysis) db += simulated ? analysis.autoGainDb : analysis.lufsRef - analysis.lufsOwn
       return Math.pow(10, db / 20)
     },
     [loudnessMatch, analysis]
@@ -176,10 +199,13 @@ export function CompareView({ song }: { song: Song }) {
       stop()
       const ctx = audioContext()
       ctx.resume()
+      const masterGain = ctx.createGain()
+      masterGain.gain.value = Math.pow(10, monitorDb / 20)
+      masterGain.connect(ctx.destination)
       const refSrc = ctx.createBufferSource()
       refSrc.buffer = refBuf
       const refGain = ctx.createGain()
-      refSrc.connect(refGain).connect(ctx.destination)
+      refSrc.connect(refGain).connect(masterGain)
 
       const ownSrc = ctx.createBufferSource()
       ownSrc.buffer = ownBuf
@@ -212,7 +238,7 @@ export function CompareView({ song }: { song: Song }) {
           head = comp
         }
       }
-      head.connect(ownGain).connect(ctx.destination)
+      head.connect(ownGain).connect(masterGain)
       refGain.gain.value = listenOwn ? 0.0001 : 1
       ownGain.gain.value = ownGainValue(listenOwn, simulated)
 
@@ -222,7 +248,7 @@ export function CompareView({ song }: { song: Song }) {
       const ownPos = fromSec - offsetSec + ownLatency
       if (ownPos >= 0 && ownPos < ownBuf.duration) ownSrc.start(t0, ownPos)
       else if (ownPos < 0) ownSrc.start(t0 - ownPos, 0)
-      graphRef.current = { refSrc, ownSrc, refGain, ownGain, startCtxTime: t0, startPos: fromSec, simulated }
+      graphRef.current = { refSrc, ownSrc, refGain, ownGain, masterGain, startCtxTime: t0, startPos: fromSec, simulated }
       refSrc.onended = () => {
         if (graphRef.current?.refSrc === refSrc) stop()
       }
@@ -235,7 +261,7 @@ export function CompareView({ song }: { song: Song }) {
       }
       rafRef.current = requestAnimationFrame(tick)
     },
-    [refBuf, ownBuf, offsetSec, listenOwn, simulate, analysis, ownGainValue, stop]
+    [refBuf, ownBuf, offsetSec, listenOwn, simulate, analysis, ownGainValue, stop, monitorDb]
   )
 
   /* A/B switch on the live graph (10 ms ramp — no click) */
@@ -377,19 +403,38 @@ export function CompareView({ song }: { song: Song }) {
           {tr('cmp.loudnessMatch')}
           {analysis && (
             <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-              {(analysis.lufsRef - analysis.lufsOwn >= 0 ? '+' : '') + (analysis.lufsRef - analysis.lufsOwn).toFixed(1)} dB
+              {(simulate
+                ? (analysis.autoGainDb >= 0 ? '+' : '') + analysis.autoGainDb.toFixed(1)
+                : (analysis.lufsRef - analysis.lufsOwn >= 0 ? '+' : '') + (analysis.lufsRef - analysis.lufsOwn).toFixed(1))} dB
             </span>
           )}
           <button className={'cv-toggle' + (loudnessMatch ? ' on' : '')} onClick={() => setLoudnessMatch((v) => !v)}>
             <span className="knob" />
           </button>
         </label>
+        <label className="row gap6" title={tr('cmp.monitor')} style={{ fontSize: 12.5, color: 'var(--text-mid)' }}>
+          <Icon name="volume" className="ic-sm" />
+          <input
+            type="range"
+            min={-24}
+            max={6}
+            step={1}
+            value={monitorDb}
+            onChange={(e) => PrefsStore.set({ monitorDb: +e.target.value })}
+            style={{ width: 90, accentColor: 'var(--accent)' }}
+          />
+          <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)', minWidth: 42, textAlign: 'right' }}>
+            {(monitorDb >= 0 ? '+' : '') + monitorDb} dB
+          </span>
+        </label>
       </div>
 
       {/* analysis */}
       {loading && (
         <div className="col gap8">
-          <span style={{ fontSize: 12.5, color: 'var(--text-mid)' }}>{tr('cmp.loading')}</span>
+          <span style={{ fontSize: 12.5, color: 'var(--text-mid)' }}>
+            {tr('cmp.loading')} <span style={{ color: 'var(--text-faint)' }}>· {tr('cmp.stage.' + stage)}</span>
+          </span>
           <div className="indet" style={{ width: '100%' }} />
         </div>
       )}
@@ -405,12 +450,23 @@ export function CompareView({ song }: { song: Song }) {
                 spec={analysis.refSpec}
                 eqCurve={analysis.eqCurve}
                 bands={analysis.eqBands}
-                exportName={`${song.title} EQ match.ffp`}
+                exportName={`${song.title} EQ match`}
+                outputGainDb={bakeGain ? analysis.autoGainDb : 0}
               />
             </div>
           </div>
+          <div style={{ animation: 'view-in .3s ease both', animationDelay: '60ms' }}>
+            <LoudnessCard
+              lufsRef={analysis.lufsRef}
+              lufsOwn={analysis.lufsOwn}
+              lufsEq={analysis.lufsEq}
+              lufsProc={analysis.lufsProc}
+              autoGainDb={analysis.autoGainDb}
+              hasComp={analysis.comp.ratio !== null}
+            />
+          </div>
           <div style={{ animation: 'view-in .3s ease both', animationDelay: '80ms' }}>
-            <CompCard rec={analysis.comp} dynamics={analysis.dynamics} />
+            <CompCard rec={analysis.comp} dynamics={analysis.dynamics} exportName={`${song.title} comp match`} />
           </div>
         </>
       )}

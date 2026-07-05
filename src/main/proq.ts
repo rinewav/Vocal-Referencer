@@ -61,10 +61,12 @@ function bandFloats(band: ExportBand | null): number[] {
   ]
 }
 
-export function buildFfp(bands: ExportBand[]): Buffer {
+export function buildFfp(bands: ExportBand[], outputGainDb = 0): Buffer {
   const floats: number[] = []
   for (let i = 0; i < BAND_SLOTS; i++) floats.push(...bandFloats(bands[i] ?? null))
-  floats.push(...GLOBALS)
+  const globals = [...GLOBALS]
+  globals[3] = Math.max(-36, Math.min(36, outputGainDb)) // output_gain (dB)
+  floats.push(...globals)
 
   const buf = Buffer.alloc(12 + floats.length * 4)
   buf.write('FQ3p', 0, 'ascii')
@@ -74,13 +76,13 @@ export function buildFfp(bands: ExportBand[]): Buffer {
   return buf
 }
 
-export async function exportProQ(bands: ExportBand[], defaultName: string): Promise<string | null> {
+export async function exportProQ(bands: ExportBand[], defaultName: string, outputGainDb = 0): Promise<string | null> {
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
   const res = await dialog.showSaveDialog(win, {
     defaultPath: defaultName.replace(/[/\\:]/g, '_'),
     filters: [{ name: 'FabFilter Preset', extensions: ['ffp'] }]
   })
   if (res.canceled || !res.filePath) return null
-  writeFileSync(res.filePath, buildFfp(bands.slice(0, BAND_SLOTS)))
+  writeFileSync(res.filePath, buildFfp(bands.slice(0, BAND_SLOTS), outputGainDb))
   return res.filePath
 }

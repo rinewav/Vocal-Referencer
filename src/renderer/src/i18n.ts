@@ -76,7 +76,7 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'cmp.dynamics': { ja: 'ダイナミクス変化', en: 'Dynamics' },
   'cmp.legendComp': { ja: '推奨コンプ適用後', en: 'With suggested comp' },
   'cmp.simulate': { ja: '処理プレビュー (推奨EQ+コンプ)', en: 'Preview suggested EQ+comp' },
-  'cmp.exportProq': { ja: 'Pro-Q 3/4 へ書き出し', en: 'Export for Pro-Q 3/4' },
+  'cmp.exportProq': { ja: 'Pro-Q 3/4', en: 'Pro-Q 3/4' },
   'cmp.exported': { ja: '保存した', en: 'Saved' },
   'cmp.legendFit': { ja: '書き出されるバンド近似', en: 'Exported band fit' },
   'cmp.comp': { ja: '等価コンプ設定（推定）', en: 'Equivalent compressor (estimated)' },
@@ -87,7 +87,75 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'cmp.comp.release': { ja: 'リリース', en: 'Release' },
   'cmp.comp.basis': { ja: '根拠: ダイナミックレンジ(P95−P10)', en: 'Basis: dynamic range (P95−P10)' },
   'cmp.legendRef': { ja: 'リファレンス', en: 'Reference' },
-  'cmp.legendOwn': { ja: '自分', en: 'Yours' }
+  'cmp.legendOwn': { ja: '自分', en: 'Yours' },
+  'set.title': { ja: '設定', en: 'Settings' },
+  'set.nav.appearance': { ja: '外観', en: 'Appearance' },
+  'set.nav.general': { ja: '一般', en: 'General' },
+  'set.nav.analysis': { ja: '解析・表示', en: 'Analysis' },
+  'set.nav.export': { ja: '書き出し', en: 'Export' },
+  'set.nav.about': { ja: 'このアプリについて', en: 'About' },
+  'set.theme': { ja: 'テーマ', en: 'Theme' },
+  'set.themeSub': { ja: 'アクセントと背景のパレットを切り替えます', en: 'Swap the accent and background palette' },
+  'set.language': { ja: '言語', en: 'Language' },
+  'set.languageSub': { ja: '表示言語を切り替えます', en: 'Switch the display language' },
+  'set.autoSep': { ja: '自動ステム分離', en: 'Auto stem separation' },
+  'set.autoSepSub': {
+    ja: 'リファレンス登録時に自動で実行する分離処理',
+    en: 'Separation that runs automatically when a reference is added'
+  },
+  'set.autoSep.off': { ja: 'なし', en: 'Off' },
+  'set.autoSep.vocal': { ja: 'ボーカルのみ', en: 'Vocals only' },
+  'set.autoSep.full': { ja: 'リード/コーラスまで', en: 'Lead/backing too' },
+  'set.tilt': { ja: 'アナライザースロープ (dB/oct)', en: 'Analyzer slope (dB/oct)' },
+  'set.tiltSub': {
+    ja: 'スペクトラム表示の傾き補正。4.5 dB/oct が Pro-Q と同じ見た目',
+    en: 'Display tilt of the spectrum. 4.5 dB/oct matches Pro-Q'
+  },
+  'set.tiltNote': {
+    ja: 'EQ推奨カーブは2音源の差分から作られるためスロープの影響を受けません。スペクトラム比較の見た目だけが変わります。',
+    en: 'The suggested EQ curve is a difference of two spectra, so the slope only affects how the spectrum comparison looks.'
+  },
+  'set.bakeGain': { ja: 'ラウドネス補正ゲインを含めて書き出す', en: 'Bake loudness-match gain into exports' },
+  'set.bakeGainSub': {
+    ja: 'EQプリセットの出力ゲインに自動補正値を書き込み、DAWで開くだけでラウドネスが揃います',
+    en: 'Writes the auto gain into the preset output gain so loudness matches right after loading'
+  },
+  'set.exportNote': {
+    ja: '書き出し形式ごとのボタンは比較ビューの各カードにあります。',
+    en: 'Per-format export buttons live on the cards in the compare view.'
+  },
+  'set.aboutBody': {
+    ja: 'Vocal Referencer — ボーカルミックスのためのリファレンス解析ツール。すべての処理はローカルで実行されます。',
+    en: 'Vocal Referencer — reference analysis for vocal mixing. Everything runs locally.'
+  },
+  'set.developer': { ja: '開発者', en: 'Developer' },
+  'cmp.stage.align': { ja: 'オフセット検出', en: 'Detecting offset' },
+  'cmp.stage.lufs': { ja: 'ラウドネス計測', en: 'Measuring loudness' },
+  'cmp.stage.spectrum': { ja: 'スペクトラム解析', en: 'Analyzing spectrum' },
+  'cmp.stage.comp': { ja: 'ダイナミクス解析', en: 'Analyzing dynamics' },
+  'cmp.stage.render': { ja: '処理後ラウドネス実測', en: 'Measuring processed loudness' },
+  'cmp.loudness': { ja: 'ラウドネス / ゲイン管理', en: 'Loudness / gain staging' },
+  'cmp.lufs.ref': { ja: 'リファレンス', en: 'Reference' },
+  'cmp.lufs.own': { ja: '自分 (未処理)', en: 'Yours (dry)' },
+  'cmp.lufs.proc': { ja: '自分 (EQ+コンプ後)', en: 'Yours (processed)' },
+  'cmp.gain.eq': { ja: 'EQ寄与', en: 'EQ contribution' },
+  'cmp.gain.comp': { ja: 'コンプ変化', en: 'Comp change' },
+  'cmp.gain.auto': { ja: '自動補正ゲイン', en: 'Auto match gain' },
+  'cmp.gain.hint': {
+    ja: 'DAWで再現するときは、EQ+コンプの後に自動補正ゲイン分のメイクアップを入れるとリファレンスと同じラウドネスになります。',
+    en: 'To reproduce in your DAW, add the auto match gain as makeup after the EQ + compressor to land on the reference loudness.'
+  },
+  'cmp.monitor': { ja: 'モニター音量', en: 'Monitor volume' },
+  'cmp.copy': { ja: 'コピー', en: 'Copy' },
+  'cmp.copied': { ja: 'コピーした', en: 'Copied' },
+  'cmp.exportZlEq': { ja: 'ZL Equalizer', en: 'ZL Equalizer' },
+  'cmp.exportProC2': { ja: 'Pro-C 2', en: 'Pro-C 2' },
+  'cmp.exportZlComp': { ja: 'ZL Compressor', en: 'ZL Compressor' },
+  'cmp.export': { ja: '書き出し', en: 'Export' },
+  'cmp.bakedGainNote': {
+    ja: '書き出しにラウドネス補正ゲインを含む (設定で変更可)',
+    en: 'Exports include the loudness-match gain (change in Settings)'
+  }
 }
 
 let current: LangCode = (localStorage.getItem('vr.lang') as LangCode) || 'ja'

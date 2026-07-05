@@ -90,6 +90,8 @@ function TitleEditor({ song, onRenamed }: { song: Song; onRenamed: () => void })
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
+        // IME 変換確定の Enter (isComposing / keyCode 229) では commit しない
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return
         if (e.key === 'Enter') commit()
         else if (e.key === 'Escape') setEditing(false)
       }}
