@@ -20,6 +20,9 @@ interface PresetDef {
   map: Record<string, StemKind>
   /* which source file to feed: 'original' or an existing stem kind */
   input: 'original' | StemKind
+  /* the stem this preset exists to produce — missing output (e.g. the
+     separator skips near-silent stems) must fail loudly, not report done */
+  required: StemKind
 }
 
 /* Vocal extraction: BS-Roformer ep317 (installed during first-run).
@@ -29,12 +32,14 @@ const PRESETS: Record<Preset, PresetDef> = {
   vocal: {
     model: 'model_bs_roformer_ep_317_sdr_12.9755.ckpt',
     map: { Vocals: 'vocals', Instrumental: 'instrumental' },
-    input: 'original'
+    input: 'original',
+    required: 'vocals'
   },
   karaoke: {
     model: 'mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt',
     map: { Vocals: 'lead', Instrumental: 'backing' },
-    input: 'vocals'
+    input: 'vocals',
+    required: 'lead'
   }
 }
 
@@ -120,7 +125,7 @@ async function runJob(jobId: string, songId: string, preset: Preset): Promise<vo
 
     // collect outputs: filenames carry "(Vocals)" / "(Instrumental)" tags
     const produced = readdirSync(outDir).filter((f) => f.toLowerCase().endsWith('.flac'))
-    let registered = 0
+    const found: Partial<Record<StemKind, boolean>> = {}
     for (const [tag, kind] of Object.entries(def.map)) {
       const file = produced.find((f) => f.includes(`(${tag})`))
       if (!file) continue
@@ -130,10 +135,12 @@ async function runJob(jobId: string, songId: string, preset: Preset): Promise<vo
       // replace any previous stem row of this kind
       const prev = songStems(songId).find((s) => s.kind === kind)
       if (!prev) registerStem(songId, kind, null, dest)
-      registered++
+      found[kind] = true
     }
     rmSync(outDir, { recursive: true, force: true })
-    if (registered === 0) throw new Error('separation produced no recognizable stems')
+    // the separator silently skips near-silent stems — a "vocal extraction"
+    // that produced no vocals is a failure the user must see
+    if (!found[def.required]) throw new Error(`silent-${def.required}`)
     emit('done', 100)
   } catch (err) {
     emit('error', 0, err instanceof Error ? err.message : String(err))

@@ -35,6 +35,26 @@ async function captureVideoFrame(url: string): Promise<string> {
   })
 }
 
+/* true when the decoded audio is effectively silence (decode "succeeded" but
+   produced nothing usable — seen with some video codecs) */
+function isNearSilent(buf: AudioBuffer): boolean {
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c)
+    // sparse scan is plenty to find real program material
+    for (let i = 0; i < d.length; i += 97) {
+      if (Math.abs(d[i]) > 0.003) return false
+    }
+  }
+  return true
+}
+
+export class SilentAudioError extends Error {
+  constructor() {
+    super('decoded audio is silent')
+    this.name = 'SilentAudioError'
+  }
+}
+
 /* post-registration steps once the file already sits inside the project */
 export async function finishRefRegistration(songId: string, srcPath: string): Promise<void> {
   if (isVideoPath(srcPath)) {
@@ -45,6 +65,9 @@ export async function finishRefRegistration(songId: string, srcPath: string): Pr
       /* no frame → waveform fallback stays */
     }
     const buf = await loadAudioBuffer(srcPath)
+    // guard: never bake a silent WAV (and never delete the source video) when
+    // the audio track failed to decode — surface it instead
+    if (isNearSilent(buf)) throw new SilentAudioError()
     await window.vr!.library.convertRefWav(songId, audioBufferToWav(buf))
   }
   if (PrefsStore.get().autoSeparate !== 'off') {

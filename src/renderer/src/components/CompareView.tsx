@@ -23,7 +23,7 @@ import { SpectrumCompareChart, EqCurveChart, CompCard, LoudnessCard, DynamicsDat
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
 import { usePrefs, PrefsStore } from '../prefs'
-import { registerReference } from '../lib/refimport'
+import { registerReference, SilentAudioError } from '../lib/refimport'
 
 interface Analysis {
   lufsRef: number
@@ -188,6 +188,7 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
   const [simulate, setSimulate] = useState(false)
   const [playhead, setPlayhead] = useState<number | null>(null)
   const [loop, setLoop] = useState<{ a: number; b: number } | null>(null)
+  const [setupError, setSetupError] = useState<string | null>(null)
   const loopRef = useRef<{ a: number; b: number } | null>(null)
   useEffect(() => {
     loopRef.current = loop && loop.b - loop.a > 0.2 ? loop : null
@@ -472,7 +473,12 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
     const pickAndRegisterRef = async () => {
       const picked = await window.vr!.pickAudio(false)
       if (picked?.[0]) {
-        await registerReference(song.id, picked[0]).catch(() => {})
+        try {
+          setSetupError(null)
+          await registerReference(song.id, picked[0])
+        } catch (err) {
+          setSetupError(err instanceof SilentAudioError ? tr('lib.err.silentVideo') : err instanceof Error ? err.message : String(err))
+        }
         reload()
       }
     }
@@ -527,6 +533,7 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
             ownCandidates[ownCandidates.length - 1]?.label ?? '',
             { label: tr('lib.addOwn'), onClick: pickAndAddOwn }
           )}
+          {setupError && <span style={{ fontSize: 12, color: 'var(--lab-red)', lineHeight: 1.5 }}>{setupError}</span>}
           <span style={{ fontSize: 11.5, color: 'var(--text-faint)', lineHeight: 1.6 }}>{tr('cmp.sepNote')}</span>
         </div>
       </div>

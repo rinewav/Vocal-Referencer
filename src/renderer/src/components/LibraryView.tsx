@@ -5,7 +5,7 @@
    waveform. Reference registration auto-runs stem separation per prefs. */
 import React, { useEffect, useRef, useState } from 'react'
 import { Song, StemRef, SeparateProgress, loadAudioBuffer, computePeaks, audioUrl } from '../lib/audio'
-import { finishRefRegistration, registerReference, maybeChainKaraoke } from '../lib/refimport'
+import { finishRefRegistration, registerReference, maybeChainKaraoke, SilentAudioError } from '../lib/refimport'
 import { dragOut } from '../lib/dragout'
 import { Icon } from './Icon'
 import { tr, useLang } from '../i18n'
@@ -245,6 +245,19 @@ export function LibraryView({
   const [tileDropId, setTileDropId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteArmId, setDeleteArmId] = useState<string | null>(null)
+  /* per-project import errors (e.g. video with an undecodable audio track) */
+  const [importErrors, setImportErrors] = useState<Record<string, string>>({})
+
+  const reportImportError = (songId: string, err: unknown) => {
+    const msg = err instanceof SilentAudioError ? tr('lib.err.silentVideo') : err instanceof Error ? err.message : String(err)
+    setImportErrors((prev) => ({ ...prev, [songId]: msg }))
+  }
+  const clearImportError = (songId: string) =>
+    setImportErrors((prev) => {
+      const next = { ...prev }
+      delete next[songId]
+      return next
+    })
 
   useEffect(() => {
     if (!hasApi) return
@@ -268,7 +281,11 @@ export function LibraryView({
     for (const p of paths) {
       const song = (await window.vr!.library.add(p)) as Song
       reload()
-      await finishRefRegistration(song.id, song.src_path).catch(() => {})
+      try {
+        await finishRefRegistration(song.id, song.src_path)
+      } catch (err) {
+        reportImportError(song.id, err)
+      }
     }
     reload()
   }
@@ -290,7 +307,12 @@ export function LibraryView({
       p = picked?.[0]
     }
     if (!p) return
-    await registerReference(songId, p).catch(() => {})
+    clearImportError(songId)
+    try {
+      await registerReference(songId, p)
+    } catch (err) {
+      reportImportError(songId, err)
+    }
     reload()
   }
 
@@ -496,8 +518,15 @@ export function LibraryView({
                 )}
                 {prog?.stage === 'error' && (
                   <span style={{ fontSize: 11.5, color: 'var(--lab-red)' }}>
-                    {tr('lib.stage.error')}: {prog.error}
+                    {tr('lib.stage.error')}: {(() => {
+                      const k = 'lib.err.' + prog.error
+                      const t = tr(k)
+                      return t === k ? prog.error : t
+                    })()}
                   </span>
+                )}
+                {importErrors[song.id] && (
+                  <span style={{ fontSize: 11.5, color: 'var(--lab-red)' }}>{importErrors[song.id]}</span>
                 )}
 
                 {song.stems.length > 0 && (

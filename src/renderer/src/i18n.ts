@@ -68,6 +68,18 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'lib.stage.model-download': { ja: 'モデル取得中', en: 'Fetching model' },
   'lib.stage.separating': { ja: '分離中', en: 'Separating' },
   'lib.stage.error': { ja: '失敗', en: 'Failed' },
+  'lib.err.silent-vocals': {
+    ja: 'ボーカルを検出できませんでした。リファレンス音源に歌声が入っているか確認してください（リファレンス差し替えで再登録できます）',
+    en: 'No vocals detected. Check that the reference actually contains vocals (you can replace the reference).'
+  },
+  'lib.err.silent-lead': {
+    ja: 'リードボーカルを分離できませんでした',
+    en: 'Could not split a lead vocal'
+  },
+  'lib.err.silentVideo': {
+    ja: 'この動画の音声を読み込めませんでした。音声ファイル (wav / mp3 など) でリファレンスを登録し直してください',
+    en: 'Could not decode this video\'s audio. Please register the reference as an audio file (wav / mp3 …) instead.'
+  },
   'stem.vocals': { ja: 'ボーカル全体', en: 'All vocals' },
   'stem.instrumental': { ja: 'インスト', en: 'Instrumental' },
   'stem.lead': { ja: 'リードのみ', en: 'Lead only' },
