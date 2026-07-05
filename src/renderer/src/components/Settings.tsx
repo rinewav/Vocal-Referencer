@@ -55,7 +55,7 @@ const NAV = [
   { id: 'about', icon: 'info', k: 'set.nav.about' }
 ] as const
 
-export function Settings({ onClose }: { onClose: () => void }) {
+export function Settings({ onClose, onReplayTutorial }: { onClose: () => void; onReplayTutorial?: () => void }) {
   const lang = useLang()
   const prefs = usePrefs()
   const [sec, setSec] = useState<string>('appearance')
@@ -206,6 +206,18 @@ export function Settings({ onClose }: { onClose: () => void }) {
                 <div className="row gap8" style={{ marginTop: 8, flexWrap: 'wrap' }}>
                   <span className="chip">{version ? `v${version}` : '…'}</span>
                 </div>
+                {onReplayTutorial && (
+                  <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,.07)' }}>
+                    <div className="col" style={{ gap: 3, marginBottom: 10 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-hi)' }}>{tr('set.replayTutorial')}</span>
+                      <span style={{ fontSize: 12, color: 'var(--text-mid)', lineHeight: 1.5 }}>{tr('set.replayTutorialSub')}</span>
+                    </div>
+                    <button onClick={onReplayTutorial} className="btn" style={{ height: 32 }}>
+                      <Icon name="play" className="ic-sm" />
+                      {tr('set.replayTutorialBtn')}
+                    </button>
+                  </div>
+                )}
                 <div className="row gap8" style={{ marginTop: 14, alignItems: 'center' }}>
                   <span style={{ fontSize: 12.5, color: 'var(--text-mid)' }}>{tr('set.developer')}</span>
                   <button

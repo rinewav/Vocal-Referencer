@@ -46,6 +46,8 @@ type Stage = 'align' | 'lufs' | 'spectrum' | 'comp' | 'render'
 const nextTick = () => new Promise((r) => setTimeout(r, 0))
 const FIR_TAPS = 4096
 const CACHE_V = 1
+/* match-EQ apply amount right after analysis — 100% often over-corrects */
+const DEFAULT_EQ_AMOUNT = 0.8
 
 /* ---------- analysis cache (SQLite via main, keyed by stem pair) ---------- */
 
@@ -128,7 +130,7 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
   const { monitorDb, bakeGain } = usePrefs()
 
   /* match-EQ apply amount (0..1). Values re-measured offline on change. */
-  const [eqAmount, setEqAmount] = useState(1)
+  const [eqAmount, setEqAmount] = useState(DEFAULT_EQ_AMOUNT)
   const [amountLufs, setAmountLufs] = useState<{ lufsEq: number; lufsProc: number; autoGainDb: number } | null>(null)
   const [remeasuring, setRemeasuring] = useState(false)
 
@@ -219,7 +221,7 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
       setStage('align')
       setError(null)
       setAnalysis(null)
-      setEqAmount(1)
+      setEqAmount(DEFAULT_EQ_AMOUNT)
       setAmountLufs(null)
       firRef.current = null
       try {
@@ -432,13 +434,14 @@ export function CompareView({ song, reload }: { song: Song; reload: () => void }
     setSimulate((v) => !v)
   }, [])
 
-  /* EQ amount change → rebuild the preview FIR (and the live graph if playing) */
+  /* shown curve change (analysis done or EQ amount moved) → rebuild the
+     preview FIR, and the live graph if a simulated preview is playing */
   useEffect(() => {
     if (!shown) return
     firRef.current = eqCurveToFir(shown.eqCurve, FIR_TAPS)
     if (playing && graphRef.current?.simulated) play(playhead ?? 0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eqAmount])
+  }, [shown?.eqCurve])
   useEffect(() => {
     if (playing && graphRef.current && graphRef.current.simulated !== (simulate && !!analysis)) {
       play(playhead ?? 0)

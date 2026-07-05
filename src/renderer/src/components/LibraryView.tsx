@@ -59,6 +59,55 @@ function WaveThumb({ path }: { path: string }) {
   return <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
 }
 
+/* thumbnail image loaded over the vr-audio protocol via fetch → blob URL —
+   <img src="vr-audio://…"> is blocked as a subresource (non-standard scheme),
+   which showed up as a broken-image icon. Falls back to the waveform. */
+function ThumbImage({ thumb, fallbackPath }: { thumb: string; fallbackPath: string | null }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let canceled = false
+    let obj: string | null = null
+    setUrl(null)
+    setFailed(false)
+    ;(async () => {
+      try {
+        const res = await fetch(audioUrl(thumb))
+        if (!res.ok) throw new Error(String(res.status))
+        const blob = await res.blob()
+        if (canceled) return
+        obj = URL.createObjectURL(blob)
+        setUrl(obj)
+      } catch {
+        if (!canceled) setFailed(true)
+      }
+    })()
+    return () => {
+      canceled = true
+      if (obj) URL.revokeObjectURL(obj)
+    }
+  }, [thumb])
+
+  if (failed && fallbackPath) return <WaveThumb path={fallbackPath} />
+  if (failed || !url) {
+    return (
+      <div className="row" style={{ height: '100%', justifyContent: 'center' }}>
+        {failed && <Icon name="note" style={{ width: 26, height: 26, color: 'var(--text-lo)' }} />}
+      </div>
+    )
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      draggable={false}
+      onError={() => setFailed(true)}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+    />
+  )
+}
+
 function TitleEditor({
   song,
   editing,
@@ -277,7 +326,7 @@ export function LibraryView({
       }}
     >
       <div className="row gap10" style={{ animation: 'view-in .3s ease both' }}>
-        <button className="btn primary" onClick={newProject}>
+        <button className="btn primary" data-tut="new-project" onClick={newProject}>
           <Icon name="plus" className="ic-sm" />
           {tr('lib.newProject')}
         </button>
@@ -285,7 +334,7 @@ export function LibraryView({
       </div>
 
       {songs.length === 0 && (
-        <div className="ph grow" style={{ borderRadius: 'var(--r-lg)', minHeight: 220, animation: 'view-in .3s ease both', animationDelay: '60ms' }}>
+        <div className="ph grow" data-tut="tiles" style={{ borderRadius: 'var(--r-lg)', minHeight: 220, animation: 'view-in .3s ease both', animationDelay: '60ms' }}>
           <div className="col gap12" style={{ alignItems: 'center' }}>
             <Icon name="note" style={{ width: 28, height: 28, color: 'var(--text-lo)' }} />
             <span className="ph-cap">{tr('app.emptyLibrary')}</span>
@@ -293,7 +342,10 @@ export function LibraryView({
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+      <div
+        data-tut={songs.length > 0 ? 'tiles' : undefined}
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}
+      >
         {songs.map((song, i) => {
           const prog = progress[song.id]
           const busy = prog && (prog.stage === 'separating' || prog.stage === 'model-download')
@@ -377,12 +429,7 @@ export function LibraryView({
                   </div>
                 )}
                 {song.thumb ? (
-                  <img
-                    src={audioUrl(song.thumb)}
-                    alt=""
-                    draggable={false}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                  />
+                  <ThumbImage thumb={song.thumb} fallbackPath={hasRef ? song.src_path : null} />
                 ) : hasRef ? (
                   <WaveThumb path={song.src_path} />
                 ) : (

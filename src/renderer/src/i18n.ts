@@ -179,7 +179,42 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'cmp.sepNote': {
     ja: '分離はリファレンス登録時に自動実行されます (設定 → 一般 で変更可)。波形をドラッグするとループ区間を選択できます。',
     en: 'Separation runs automatically when a reference is added (Settings → General). Drag on a waveform to select a loop region.'
-  }
+  },
+  'tut.createTitle': { ja: 'プロジェクトを作る', en: 'Create a project' },
+  'tut.createBody': {
+    ja: 'ここからプロジェクトを新規作成。音声や動画ファイルをこの画面にドロップしても、そのままプロジェクトになります。',
+    en: 'Create a new project here — or just drop an audio / video file anywhere on this view.'
+  },
+  'tut.registerTitle': { ja: 'リファレンスと自分の歌を登録', en: 'Register both vocals' },
+  'tut.registerBody': {
+    ja: 'タイルにリファレンス曲と自分のボーカルを登録します。どちらが先でもOK。リファレンスを入れるとボーカル抽出とリード/コーラス分離が自動で走ります。',
+    en: 'Attach the reference song and your own vocal to a tile — in either order. Adding a reference auto-runs vocal extraction and the lead/backing split.'
+  },
+  'tut.compareTitle': { ja: '聴き比べる', en: 'Compare by ear' },
+  'tut.compareBody': {
+    ja: '素材が揃ったらプロジェクトを開いて比較。Spaceで再生、A/Bボタンでリファレンスと自分を瞬時切替、波形をドラッグするとループ区間を選べます。ラウドネスは自動で揃います。',
+    en: 'Open a project to compare. Space plays, the A/B buttons swap between reference and you, and dragging on a waveform sets a loop. Loudness is matched automatically.'
+  },
+  'tut.analysisTitle': { ja: '解析と書き出し', en: 'Analysis & export' },
+  'tut.analysisBody': {
+    ja: 'スペクトラム比較・マッチEQ・コンプ提案を自動解析。EQ量スライダーで効き具合を調整し、「書き出し」から Pro-Q 3/4 や ZL Equalizer のプリセットとして保存できます。',
+    en: 'Spectrum comparison, match EQ and a compressor suggestion are analyzed automatically. Adjust the amount slider, then export presets for Pro-Q 3/4 or ZL Equalizer.'
+  },
+  'tut.settingsTitle': { ja: '設定', en: 'Settings' },
+  'tut.settingsBody': {
+    ja: 'テーマ、自動分離の挙動、アナライザースロープ、書き出しのゲイン焼き込みはここから変更できます。このチュートリアルは設定のAboutからいつでも見直せます。',
+    en: 'Theme, auto separation, analyzer slope and gain baking live here. You can replay this tutorial anytime from Settings → About.'
+  },
+  'tut.next': { ja: '次へ', en: 'Next' },
+  'tut.back': { ja: '戻る', en: 'Back' },
+  'tut.done': { ja: 'はじめる', en: 'Get started' },
+  'tut.skip': { ja: 'スキップ', en: 'Skip' },
+  'set.replayTutorial': { ja: 'チュートリアル', en: 'Tutorial' },
+  'set.replayTutorialSub': {
+    ja: '基本操作のガイドをもう一度表示します',
+    en: 'Show the basic walkthrough again'
+  },
+  'set.replayTutorialBtn': { ja: 'もう一度見る', en: 'Replay' }
 }
 
 let current: LangCode = (localStorage.getItem('vr.lang') as LangCode) || 'ja'

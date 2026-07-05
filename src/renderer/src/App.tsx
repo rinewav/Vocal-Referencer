@@ -3,6 +3,7 @@ import { FirstRun } from './components/FirstRun'
 import { LibraryView } from './components/LibraryView'
 import { CompareView } from './components/CompareView'
 import { Settings } from './components/Settings'
+import { Tutorial } from './components/Tutorial'
 import { Icon } from './components/Icon'
 import { Song } from './lib/audio'
 import { tr, useLang } from './i18n'
@@ -19,6 +20,19 @@ export function App() {
   const [songs, setSongs] = useState<Song[]>([])
   const [compareSong, setCompareSong] = useState<Song | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [tutorial, setTutorial] = useState(false)
+
+  const startTutorial = useCallback(() => {
+    setSettingsOpen(false)
+    setView('library')
+    setTutorial(true)
+  }, [])
+
+  const closeTutorial = useCallback(() => {
+    setTutorial(false)
+    if (hasApi) void window.vr!.settings.set('tutorialDone', true)
+    else localStorage.setItem('vr.tutorialDone', '1')
+  }, [])
 
   const reload = useCallback(async () => {
     if (!hasApi) return
@@ -36,6 +50,18 @@ export function App() {
     window.vr!.settings.get('firstRunDone').then((done) => setFirstRun(done !== true))
     reload()
   }, [reload])
+
+  /* onboarding: once per install, right after the first-run gate clears */
+  useEffect(() => {
+    if (firstRun !== false) return
+    if (hasApi) {
+      window.vr!.settings.get('tutorialDone').then((done) => {
+        if (done !== true) setTutorial(true)
+      })
+    } else if (localStorage.getItem('vr.tutorialDone') !== '1') {
+      setTutorial(true)
+    }
+  }, [firstRun])
 
   if (firstRun === null) return null
   if (firstRun) return <FirstRun onDone={() => setFirstRun(false)} />
@@ -55,6 +81,7 @@ export function App() {
             </button>
             <button
               className={'cv-seg-btn' + (view === 'compare' ? ' on' : '')}
+              data-tut="nav-compare"
               onClick={() => setView('compare')}
             >
               <Icon name="compare" className="ic-sm" />
@@ -65,6 +92,7 @@ export function App() {
         <div className="row no-drag" style={{ width: 120, justifyContent: 'flex-end', paddingRight: 12 }}>
           <button
             className="cv-toolbtn"
+            data-tut="settings"
             title={tr('set.title')}
             onClick={() => setSettingsOpen(true)}
           >
@@ -73,7 +101,8 @@ export function App() {
         </div>
       </div>
 
-      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} onReplayTutorial={startTutorial} />}
+      {tutorial && <Tutorial onClose={closeTutorial} />}
 
       {view === 'library' ? (
         <LibraryView
