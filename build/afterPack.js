@@ -15,9 +15,20 @@ const path = require('node:path')
  * 正当なCodeResourcesシールを付ける。これで「破損」ではなく通常の
  * 「未確認デベロッパ」（右クリック→開く で回避可）になる。
  * 完全なダブルクリック起動には Apple Developer ID 署名＋公証が必要。
+ *
+ * universal ビルドでは、各arch版が一旦 `*-universal-{x64,arm64}-temp` に作られ、
+ * @electron/universal が「バイナリ以外のファイルは全arch一致」を要求して結合する。
+ * ここで中間版を署名すると _CodeSignature/CodeResources がarch毎に変わり結合が失敗する。
+ * よって中間 `-temp` 版はスキップし、結合後の最終版だけを署名する。
  */
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return
+
+  // universal結合前の中間arch版は署名しない（署名すると結合が壊れる）。
+  if (context.appOutDir.endsWith('-temp')) {
+    console.log(`[afterPack] skip intermediate (pre-merge): ${context.appOutDir}`)
+    return
+  }
 
   const appName = context.packager.appInfo.productFilename
   const appPath = path.join(context.appOutDir, `${appName}.app`)
