@@ -105,7 +105,7 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'cmp.exported': { ja: '保存した', en: 'Saved' },
   'cmp.legendFit': { ja: '書き出されるバンド近似', en: 'Exported band fit' },
   'cmp.comp': { ja: 'コンプレッサー', en: 'Compressor' },
-  'cmp.comp.none': { ja: '追いコンプ不要 — ダイナミクスはリファレンス相当', en: 'No extra compression needed — dynamics already match' },
+  'cmp.comp.none': { ja: 'コンプレッサー処理は不要 — ダイナミクスはリファレンス相当', en: 'No extra compression needed — dynamics already match' },
   'cmp.comp.ratio': { ja: 'レシオ', en: 'Ratio' },
   'cmp.comp.threshold': { ja: 'スレッショルド', en: 'Threshold' },
   'cmp.comp.attack': { ja: 'アタック', en: 'Attack' },
@@ -131,6 +131,16 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
   'set.autoSep.off': { ja: 'なし', en: 'Off' },
   'set.autoSep.vocal': { ja: 'ボーカルのみ', en: 'Vocals only' },
   'set.autoSep.full': { ja: 'リード/コーラスまで', en: 'Lead/backing too' },
+  'set.discord': { ja: 'Discord表示 (Rich Presence)', en: 'Discord Rich Presence' },
+  'set.discordSub': {
+    ja: '起動中のアプリをDiscordのプロフィールに表示します',
+    en: 'Show the app on your Discord profile while it runs'
+  },
+  'set.discordClientId': { ja: 'Discord アプリID (Client ID)', en: 'Discord application ID (Client ID)' },
+  'set.discordClientIdSub': {
+    ja: 'Discord Developer Portal で作成したアプリのIDを入力すると表示が有効になります',
+    en: 'Enter the ID of an app you created in the Discord Developer Portal to enable the presence'
+  },
   'set.tilt': { ja: 'アナライザースロープ (dB/oct)', en: 'Analyzer slope (dB/oct)' },
   'set.tiltSub': {
     ja: 'スペクトラム表示の傾き補正',
@@ -226,7 +236,25 @@ const STRINGS: Record<string, { ja: string; en: string }> = {
     ja: '基本操作のガイドをもう一度表示します',
     en: 'Show the basic walkthrough again'
   },
-  'set.replayTutorialBtn': { ja: 'もう一度見る', en: 'Replay' }
+  'set.replayTutorialBtn': { ja: 'もう一度見る', en: 'Replay' },
+  'set.reset': { ja: 'アプリを初期化', en: 'Reset app' },
+  'set.resetSub': {
+    ja: 'すべてのプロジェクト・設定・チュートリアル状態を削除し、インストール直後の状態に戻します。ダウンロード済みの解析エンジンは保持されます。この操作は取り消せません。',
+    en: 'Deletes all projects, settings and tutorial state, returning the app to a fresh install. The downloaded analysis engine is kept. This cannot be undone.'
+  },
+  'set.resetBtn': { ja: '全て初期状態に戻す', en: 'Reset everything' },
+  'set.resetConfirm': {
+    ja: 'もう一度押すと実行 — 取り消せません',
+    en: 'Click again to confirm — this cannot be undone'
+  },
+  'set.resetting': { ja: '初期化しています…', en: 'Resetting…' },
+  'set.resetError': {
+    ja: '初期化に失敗しました。処理中のファイルがある場合は、少し待ってからもう一度お試しください。',
+    en: 'Reset failed. If a file is still in use, wait a moment and try again.'
+  },
+  'up.available': { ja: '新しいバージョンがあります', en: 'A new version is available' },
+  'up.download': { ja: 'ダウンロード', en: 'Download' },
+  'up.dismiss': { ja: '閉じる', en: 'Dismiss' }
 }
 
 let current: LangCode = (localStorage.getItem('vr.lang') as LangCode) || 'ja'

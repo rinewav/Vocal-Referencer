@@ -124,7 +124,7 @@ function TitleEditor({
   if (!editing) {
     return (
       <span
-        style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        style={{ display: 'block', minWidth: 0, fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         title={song.title}
       >
         {song.title}
@@ -174,14 +174,17 @@ function TileButton({ icon, title, danger, onClick }: { icon: string; title: str
   )
 }
 
-function StemChip({ stem }: { stem: StemRef }) {
+/* one draggable row inside the "drag into your DAW" stem box. Single, uniform
+   look (wave icon + name + drag-out hint) — no chip pill, no per-kind color, so
+   the box reads as a calm list rather than a scatter of buttons. */
+function StemRow({ stem }: { stem: StemRef }) {
   useLang()
   return (
-    <span
-      className="chip"
+    <div
+      className="cv-group-row"
       draggable
-      title={stem.path}
-      style={{ cursor: 'grab', height: 24, fontSize: 11.5 }}
+      title={tr('lib.dragOut')}
+      style={{ cursor: 'grab', gap: 10, padding: '8px 12px' }}
       onClick={(e) => e.stopPropagation()}
       onDragStart={(e) => {
         e.preventDefault()
@@ -189,10 +192,13 @@ function StemChip({ stem }: { stem: StemRef }) {
         dragOut([stem.path])
       }}
     >
-      <Icon name="wave" className="ic-sm" style={{ width: 11, height: 11 }} />
-      {tr('stem.' + stem.kind)}
-      {stem.label ? ` · ${stem.label}` : ''}
-    </span>
+      <Icon name="wave" className="ic-sm" style={{ color: 'var(--text-lo)', flex: 'none' }} />
+      <span style={{ fontSize: 12.5, color: 'var(--text-hi)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {tr('stem.' + stem.kind)}
+        {stem.label ? ` · ${stem.label}` : ''}
+      </span>
+      <Icon name="download" className="ic-sm" style={{ marginLeft: 'auto', color: 'var(--text-faint)', flex: 'none' }} />
+    </div>
   )
 }
 
@@ -530,9 +536,13 @@ export function LibraryView({
                 )}
 
                 {song.stems.length > 0 && (
-                  <div className="row gap4" style={{ flexWrap: 'wrap' }}>
+                  <div className="cv-group" style={{ marginTop: 2 }}>
+                    <div className="cv-group-head row gap8" style={{ alignItems: 'center' }}>
+                      <Icon name="download" className="ic-sm" style={{ color: 'var(--text-lo)' }} />
+                      {tr('lib.stemsBox')}
+                    </div>
                     {song.stems.map((s) => (
-                      <StemChip key={s.id} stem={s} />
+                      <StemRow key={s.id} stem={s} />
                     ))}
                   </div>
                 )}

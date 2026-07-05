@@ -5,6 +5,13 @@ const api = {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     set: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value)
   },
+  /* factory reset — wipes the library + settings and relaunches the app */
+  resetApp: () => ipcRenderer.invoke('app:reset') as Promise<void>,
+  /* Discord Rich Presence */
+  discord: {
+    enable: (on: boolean) => ipcRenderer.invoke('discord:enable', on) as Promise<{ ok: boolean; error?: string }>,
+    setPresence: (state: { view?: string; lang?: string }) => ipcRenderer.invoke('discord:presence', state) as Promise<void>
+  },
   engine: {
     health: () => ipcRenderer.invoke('engine:health'),
     install: () => ipcRenderer.invoke('engine:install'),
@@ -49,6 +56,15 @@ const api = {
   exportZlEq: (bands: { freqHz: number; gainDb: number; q: number }[], defaultName: string, outputGainDb?: number) =>
     ipcRenderer.invoke('export:zleq', bands, defaultName, outputGainDb ?? 0) as Promise<string | null>,
   appVersion: () => ipcRenderer.invoke('app:version') as Promise<string>,
+  /* notify-only update check against the GitHub latest release (never installs) */
+  checkUpdate: () =>
+    ipcRenderer.invoke('app:check-update') as Promise<{
+      current: string
+      latest?: string
+      url?: string
+      updateAvailable: boolean
+    }>,
+  openDownload: (url?: string) => ipcRenderer.invoke('app:open-download', url) as Promise<void>,
   pickAudio: (multi: boolean) => ipcRenderer.invoke('dialog:pick-audio', multi) as Promise<string[] | null>,
   dragStart: (paths: string[], iconDataUrl?: string) => ipcRenderer.send('drag:start', paths, iconDataUrl),
   pathForFile: (file: File) => webUtils.getPathForFile(file)

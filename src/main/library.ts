@@ -4,10 +4,21 @@
 import { randomUUID } from 'crypto'
 import { mkdirSync, copyFileSync, rmSync, writeFileSync, unlinkSync, existsSync } from 'fs'
 import { join, extname, basename } from 'path'
-import { getDb, libraryRoot, SongRow, StemRow, StemKind } from './db'
+import { getDb, closeDb, dbPath, libraryRoot, SongRow, StemRow, StemKind } from './db'
 
 export interface SongWithStems extends SongRow {
   stems: StemRow[]
+}
+
+/* stored copy name derived from the reference's real filename, so the compare
+   view / library show the actual name and a drag-out to the DAW keeps it
+   (previously every reference was stored as original.<ext>). Strips characters
+   that are illegal in file names; falls back to 'reference' if nothing is left. */
+function safeRefName(filePath: string): string {
+  const ext = extname(filePath).toLowerCase()
+  // eslint-disable-next-line no-control-regex
+  const base = basename(filePath, extname(filePath)).replace(/[/\\:*?"<>|\x00-\x1f]/g, '_').trim()
+  return (base || 'reference') + ext
 }
 
 export function createProject(title?: string): SongWithStems {
@@ -38,7 +49,7 @@ export function setReference(songId: string, filePath: string): void {
   if (!song) throw new Error('project not found')
   const dir = join(libraryRoot(), songId)
   mkdirSync(dir, { recursive: true })
-  const dest = join(dir, 'original' + extname(filePath).toLowerCase())
+  const dest = join(dir, safeRefName(filePath))
   if (song.src_path && song.src_path !== dest && existsSync(song.src_path)) unlinkSync(song.src_path)
   copyFileSync(filePath, dest)
   const separated = db
@@ -70,11 +81,23 @@ async function extractCoverArt(songId: string, filePath: string): Promise<void> 
   }
 }
 
+/* delete the project's previous thumbnail file (if any) — called before a new
+   one is written so the unique-named replacements don't pile up on disk */
+function removePrevThumb(songId: string, keep: string): void {
+  const prev = getSong(songId)?.thumb
+  if (prev && prev !== keep && existsSync(prev)) {
+    try { unlinkSync(prev) } catch { /* leave the stale file behind */ }
+  }
+}
+
 export function setThumbFromFile(songId: string, imagePath: string): string {
   const dir = join(libraryRoot(), songId)
   mkdirSync(dir, { recursive: true })
-  const dest = join(dir, 'thumb' + extname(imagePath).toLowerCase())
+  // unique name per replacement: a fixed name kept the same DB value + URL, so
+  // React skipped the re-render and the HTTP cache served the old image
+  const dest = join(dir, `thumb-${Date.now()}` + extname(imagePath).toLowerCase())
   copyFileSync(imagePath, dest)
+  removePrevThumb(songId, dest)
   getDb().prepare('UPDATE songs SET thumb = ? WHERE id = ?').run(dest, songId)
   return dest
 }
@@ -85,8 +108,9 @@ export function setThumbFromData(songId: string, dataUrl: string): string {
   if (!m) throw new Error('expected a PNG data URL')
   const dir = join(libraryRoot(), songId)
   mkdirSync(dir, { recursive: true })
-  const dest = join(dir, 'thumb.png')
+  const dest = join(dir, `thumb-${Date.now()}.png`)
   writeFileSync(dest, Buffer.from(m[1], 'base64'))
+  removePrevThumb(songId, dest)
   getDb().prepare('UPDATE songs SET thumb = ? WHERE id = ?').run(dest, songId)
   return dest
 }
@@ -116,7 +140,10 @@ export function convertRefToWav(songId: string, wav: Buffer): string {
   const song = getSong(songId)
   if (!song) throw new Error('project not found')
   const dir = join(libraryRoot(), songId)
-  const dest = join(dir, 'original.wav')
+  // keep the original video's name (setReference already stored it safely) so
+  // the decoded WAV reads as "MyClip.wav" rather than "original.wav"
+  const base = song.src_path ? basename(song.src_path, extname(song.src_path)) : 'reference'
+  const dest = join(dir, base + '.wav')
   writeFileSync(dest, wav)
   if (song.src_path && song.src_path !== dest && existsSync(song.src_path)) {
     try { unlinkSync(song.src_path) } catch { /* leave the video behind */ }
@@ -187,6 +214,23 @@ export function deleteSong(songId: string): void {
   db.prepare('DELETE FROM analysis_cache WHERE song_id = ?').run(songId)
   db.prepare('DELETE FROM songs WHERE id = ?').run(songId)
   rmSync(join(libraryRoot(), songId), { recursive: true, force: true })
+}
+
+/* factory reset: drop every project, stem and cached analysis, plus the copied
+   media under userData/library. Closes the DB first so the file (and its WAL
+   sidecars) can be removed; the engine install is left untouched.
+   The main DB is deleted first and its error is allowed to propagate — if it's
+   locked (e.g. a separation subprocess is mid-write on Windows), the caller
+   aborts the relaunch and the user can retry, rather than restarting on top of
+   a still-populated library. Sidecars and copied media are best-effort. */
+export function resetLibraryData(): void {
+  closeDb()
+  const db = dbPath()
+  rmSync(db, { force: true })
+  for (const f of [db + '-wal', db + '-shm', db + '-journal']) {
+    try { rmSync(f, { force: true }) } catch { /* sidecar — DB is already gone */ }
+  }
+  try { rmSync(libraryRoot(), { recursive: true, force: true }) } catch { /* leftover media — harmless orphans */ }
 }
 
 export function getSong(songId: string): SongRow | undefined {

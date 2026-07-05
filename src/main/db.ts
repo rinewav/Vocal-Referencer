@@ -74,3 +74,15 @@ export function getDb(): Database.Database {
 export function libraryRoot(): string {
   return join(app.getPath('userData'), 'library')
 }
+
+export function dbPath(): string {
+  return join(app.getPath('userData'), 'library.db')
+}
+
+/* release the sqlite handle so the file can be deleted (factory reset) */
+export function closeDb(): void {
+  if (db) {
+    db.close()
+    db = null
+  }
+}
