@@ -13,8 +13,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "dist": "electron-vite build && electron-builder",
-    "dist:mac": "electron-vite build && electron-builder --mac dmg",
-    "dist:win": "electron-vite build && electron-builder --win nsis"
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:win": "electron-vite build && electron-builder --win --x64 --arm64"
   },
   "build": {
     "appId": "jp.rine.vocalreferencer",
@@ -27,13 +27,13 @@
       "out/**/*",
       "package.json"
     ],
+    "afterPack": "build/afterPack.js",
     "mac": {
       "target": [
         {
           "target": "dmg",
           "arch": [
-            "arm64",
-            "x64"
+            "universal"
           ]
         }
       ],
@@ -42,7 +42,13 @@
     },
     "win": {
       "target": [
-        "nsis"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ]
     }
   },
