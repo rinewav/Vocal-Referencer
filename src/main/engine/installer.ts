@@ -12,7 +12,7 @@ import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
 import * as tar from 'tar'
 import { engineManifest, PIP_PACKAGES, EnginePart } from './manifest'
-import { engineRoot, runtimeDir, modelsDir, markerPath, pythonBin, audioSeparatorBin, hasRuntime, ENGINE_VERSION } from './paths'
+import { engineRoot, runtimeDir, modelsDir, markerPath, pythonBin, audioSeparatorBin, ffmpegBin, engineEnv, hasRuntime, ENGINE_VERSION } from './paths'
 
 export interface InstallProgress {
   name: string
@@ -72,7 +72,7 @@ async function installPythonRuntime(part: EnginePart): Promise<void> {
 
 function runCommand(bin: string, args: string[], onLine?: (line: string) => void): Promise<number> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: engineEnv() })
     const feed = (data: Buffer) => {
       if (!onLine) return
       // tqdm redraws with \r, so split on both
@@ -89,8 +89,21 @@ const runPython = (args: string[], onLine?: (line: string) => void) => runComman
 
 async function hasAudioEngine(): Promise<boolean> {
   if (!hasRuntime()) return false
+  // the ffmpeg shim is part of this step's output — missing shim (e.g. an
+  // install from before it existed) must re-run the step, not pass health
+  if (!existsSync(ffmpegBin())) return false
   return (await runPython(['-c', 'import audio_separator'])) === 0
 }
+
+/* copy the static ffmpeg out of the imageio-ffmpeg wheel to a stable name
+   next to python, where engineEnv() puts it on PATH for audio-separator */
+const FFMPEG_SHIM_SCRIPT = [
+  'import os, shutil, sys, imageio_ffmpeg',
+  'src = imageio_ffmpeg.get_ffmpeg_exe()',
+  "dst = os.path.join(os.path.dirname(sys.executable), 'ffmpeg.exe' if os.name == 'nt' else 'ffmpeg')",
+  'os.path.exists(dst) and os.remove(dst)',
+  'shutil.copy2(src, dst)'
+].join('\n')
 
 async function installPipDeps(part: EnginePart): Promise<void> {
   if (await hasAudioEngine()) {
@@ -106,6 +119,9 @@ async function installPipDeps(part: EnginePart): Promise<void> {
     () => broadcast({ name: part.name, received: ++lines, total: 0, done: false })
   )
   if (code !== 0) throw new Error(`pip exited with ${code}`)
+  if ((await runPython(['-c', FFMPEG_SHIM_SCRIPT])) !== 0 || !existsSync(ffmpegBin())) {
+    throw new Error('ffmpeg shim install failed')
+  }
   if (!(await hasAudioEngine())) throw new Error('audio_separator import failed after pip install')
   broadcast({ name: part.name, received: 1, total: 1, done: true })
 }

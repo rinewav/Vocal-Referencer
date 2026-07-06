@@ -6,7 +6,7 @@ import { spawn } from 'child_process'
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { audioSeparatorBin, modelsDir } from './paths'
+import { audioSeparatorBin, engineEnv, modelsDir } from './paths'
 import { DEFAULT_MODEL_FILE, KARAOKE_MODEL_FILE } from './manifest'
 import { libraryRoot } from '../db'
 import { getSong, songStems, registerStem } from '../library'
@@ -58,7 +58,9 @@ function broadcast(p: SeparateProgress) {
 
 function run(args: string[], onLine: (line: string) => void): Promise<number> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(audioSeparatorBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    // engineEnv: Finder-launched apps have a bare PATH — without the bundled
+    // ffmpeg shim on it, audio-separator exits 1 before doing anything
+    const proc = spawn(audioSeparatorBin(), args, { stdio: ['ignore', 'pipe', 'pipe'], env: engineEnv() })
     const feed = (d: Buffer) => {
       for (const line of d.toString().split(/[\r\n]/)) if (line.trim()) onLine(line)
     }

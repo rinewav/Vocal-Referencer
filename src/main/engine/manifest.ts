@@ -69,5 +69,7 @@ export function engineManifest(): EnginePart[] {
   ]
 }
 
-/* pip packages installed into the bundled runtime */
-export const PIP_PACKAGES = ['audio-separator[cpu]']
+/* pip packages installed into the bundled runtime.
+   imageio-ffmpeg ships a static ffmpeg binary per platform — audio-separator
+   requires an `ffmpeg` on PATH, and end users can't be assumed to have one */
+export const PIP_PACKAGES = ['audio-separator[cpu]', 'imageio-ffmpeg']

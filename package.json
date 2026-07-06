@@ -12,9 +12,10 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
-    "dist": "electron-vite build && electron-builder",
-    "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:win": "electron-vite build && electron-builder --win --x64 --arm64"
+    "dist": "electron-vite build && electron-builder && npm run fix:native",
+    "dist:mac": "electron-vite build && electron-builder --mac && npm run fix:native",
+    "dist:win": "electron-vite build && electron-builder --win --x64 --arm64 && npm run fix:native",
+    "fix:native": "electron-rebuild -f -w better-sqlite3"
   },
   "build": {
     "appId": "jp.rine.vocalreferencer",
